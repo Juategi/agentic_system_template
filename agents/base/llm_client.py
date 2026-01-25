@@ -289,6 +289,172 @@ class OpenAIProvider(BaseLLMProvider):
 
 
 # =============================================================================
+# OLLAMA PROVIDER
+# =============================================================================
+
+class OllamaProvider(BaseLLMProvider):
+    """
+    Ollama local LLM provider.
+
+    Ollama runs locally and provides an API for running open-source models
+    like LLaMA, Mistral, CodeLlama, etc. No API key required.
+
+    Requires Ollama to be running: https://ollama.ai
+    """
+
+    DEFAULT_MODEL = "llama3.2"
+    DEFAULT_BASE_URL = "http://localhost:11434"
+
+    def __init__(
+        self,
+        model: str = None,
+        base_url: str = None,
+        api_key: str = None,  # Ignored, kept for interface compatibility
+        **kwargs
+    ):
+        """
+        Initialize Ollama provider.
+
+        Args:
+            model: Model to use (default: llama3.2)
+            base_url: Ollama server URL (default: http://localhost:11434)
+            api_key: Ignored (Ollama doesn't require authentication)
+        """
+        self.model = (
+            model
+            or os.environ.get("OLLAMA_MODEL")
+            or os.environ.get("LLM_MODEL", self.DEFAULT_MODEL)
+        )
+        self.base_url = (
+            base_url
+            or os.environ.get("OLLAMA_BASE_URL", self.DEFAULT_BASE_URL)
+        )
+        # Remove trailing slash if present
+        self.base_url = self.base_url.rstrip("/")
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Estimate token count for Ollama models.
+
+        Ollama doesn't always report exact token counts, so we estimate.
+        Most LLaMA-based models use ~4 chars per token.
+        """
+        return len(text) // 4
+
+    def _check_connection(self) -> bool:
+        """Check if Ollama server is reachable."""
+        import requests
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
+
+    def complete(
+        self,
+        messages: List[LLMMessage],
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> LLMResponse:
+        """Generate completion using Ollama."""
+        import requests
+
+        # Convert messages to Ollama chat format
+        ollama_messages = []
+        for msg in messages:
+            ollama_messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+
+        # Prepare request payload
+        payload = {
+            "model": self.model,
+            "messages": ollama_messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens
+            }
+        }
+
+        # Calculate input tokens estimate before request
+        input_text = " ".join(m.content for m in messages)
+        tokens_input_estimate = self._estimate_tokens(input_text)
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=kwargs.get("timeout", 300)
+            )
+
+            # Handle specific error cases
+            if response.status_code == 404:
+                raise RuntimeError(
+                    f"Model '{self.model}' not found. "
+                    f"Run: ollama pull {self.model}"
+                )
+
+            response.raise_for_status()
+            result = response.json()
+
+            # Extract content
+            content = result.get("message", {}).get("content", "")
+
+            # Token handling: Ollama may return token info in some versions
+            # Use estimates as fallback
+            tokens_output = result.get("eval_count", self._estimate_tokens(content))
+            tokens_input = result.get("prompt_eval_count", tokens_input_estimate)
+
+            # Determine finish reason
+            finish_reason = "stop"
+            if result.get("done_reason"):
+                finish_reason = result["done_reason"]
+            elif not result.get("done", True):
+                finish_reason = "length"
+
+            return LLMResponse(
+                content=content,
+                model=result.get("model", self.model),
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+                finish_reason=finish_reason,
+                raw_response=result
+            )
+
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}. "
+                "Ensure Ollama is running: 'ollama serve'"
+            )
+        except requests.exceptions.Timeout:
+            raise TimeoutError(
+                f"Ollama request timed out after {kwargs.get('timeout', 300)}s. "
+                "Consider using a smaller model or increasing timeout."
+            )
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Ollama HTTP error: {e.response.status_code} - {e.response.text}")
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Ollama request failed: {e}")
+
+    def get_model_name(self) -> str:
+        return self.model
+
+    def list_models(self) -> List[str]:
+        """List available models in Ollama."""
+        import requests
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return [m.get("name") for m in models]
+        except Exception:
+            return []
+
+
+# =============================================================================
 # LLM CLIENT (MAIN INTERFACE)
 # =============================================================================
 
@@ -322,7 +488,8 @@ class LLMClient:
 
     PROVIDERS = {
         "anthropic": AnthropicProvider,
-        "openai": OpenAIProvider
+        "openai": OpenAIProvider,
+        "ollama": OllamaProvider
     }
 
     def __init__(
