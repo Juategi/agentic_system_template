@@ -35,8 +35,35 @@ Iteration Support:
 Code Quality:
     The agent follows project conventions from CONVENTIONS.md
     and architectural patterns from ARCHITECTURE.md.
+
+Usage:
+    from agents.developer import DeveloperAgent
+
+    agent = DeveloperAgent()
+    result = agent.run()  # Reads context from environment
+
+    # Or with custom config
+    agent = DeveloperAgent(config={
+        "max_files_modified": 10,
+        "create_branch": True
+    })
 """
 
-from agents.developer.developer_agent import DeveloperAgent
+from .developer_agent import (
+    DeveloperAgent,
+    TaskInfo,
+    FileChange,
+    ImplementationPlan,
+    IMPLEMENTATION_PLAN_SCHEMA,
+    CODE_CHANGE_SCHEMA,
+)
 
-__all__ = ["DeveloperAgent"]
+__all__ = [
+    "DeveloperAgent",
+    "TaskInfo",
+    "FileChange",
+    "ImplementationPlan",
+    "IMPLEMENTATION_PLAN_SCHEMA",
+    "CODE_CHANGE_SCHEMA",
+]
+__version__ = "0.1.0"
