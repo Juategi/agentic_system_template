@@ -39,11 +39,19 @@ Example Workflow:
     - Task 3 must complete before Task 2
     - Task 4 depends on Task 2 and Task 3
 
-Prompts:
-    The agent uses prompts from the prompts/ directory to guide
-    the LLM in analyzing and decomposing features.
+Usage:
+    from agents.planner import PlannerAgent
+
+    agent = PlannerAgent()
+    result = agent.run()  # Reads context from environment
+
+    # Or with custom context
+    from agents.base import AgentContext
+    context = AgentContext(issue_number=123, project_id="my-project")
+    result = agent.execute(context)
 """
 
-from agents.planner.planner_agent import PlannerAgent
+from .planner_agent import PlannerAgent, DECOMPOSITION_SCHEMA
 
-__all__ = ["PlannerAgent"]
+__all__ = ["PlannerAgent", "DECOMPOSITION_SCHEMA"]
+__version__ = "0.1.0"
