@@ -451,7 +451,7 @@ class DeveloperAgent(AgentInterface):
         # Match common file patterns
         patterns = [
             r'`([^`]+\.[a-zA-Z]+)`',  # Backticked file names
-            r'(?:^|\s)([\w/\\.-]+\.(?:py|js|ts|java|go|rs|rb|php|css|html|json|yaml|yml|md))\b',  # File extensions
+            r'(?:^|\s)([\w/\\.-]+\.(?:py|js|ts|java|go|rs|rb|php|css|html|json|yaml|yml|md|dart))\b',  # File extensions
         ]
 
         files = set()
@@ -826,6 +826,7 @@ Return your plan as JSON."""
             ".java": "Java following standard conventions",
             ".go": "Go following standard conventions",
             ".rs": "Rust following standard conventions",
+            ".dart": "Dart following Effective Dart guidelines, with null safety",
         }
 
         lang_hint = language_hints.get(ext, "the appropriate language")
@@ -908,6 +909,7 @@ Then explain what you created/changed."""
             ".rs": "rust",
             ".rb": "ruby",
             ".php": "php",
+            ".dart": "dart",
         }
         expected_lang = lang_map.get(ext, "")
 
@@ -1007,7 +1009,32 @@ Then explain what you created/changed."""
                         "line": e.lineno
                     })
 
-            # Add more language checks as needed
+            elif ext == ".dart":
+                # Dart syntax check using dart analyze
+                full_path = os.path.join(self.repo_path, change.path)
+                try:
+                    result = subprocess.run(
+                        ["dart", "analyze", full_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode != 0:
+                        # Parse errors from output
+                        error_lines = [l for l in result.stderr.split('\n') if 'error' in l.lower()]
+                        if error_lines:
+                            errors.append({
+                                "file": change.path,
+                                "error": error_lines[0] if error_lines else "Dart analysis failed",
+                                "line": None
+                            })
+                except FileNotFoundError:
+                    # Dart not installed, skip verification
+                    self.logger.warning("Dart not installed, skipping syntax verification")
+                except subprocess.TimeoutExpired:
+                    self.logger.warning(f"Dart analysis timed out for {change.path}")
+                except Exception as e:
+                    self.logger.warning(f"Dart analysis failed for {change.path}: {e}")
 
         return {
             "success": len(errors) == 0,
@@ -1105,7 +1132,17 @@ Then explain what you created/changed."""
 
         for change in changes:
             path = change.path.lower()
-            if 'test' in path or path.endswith('_test.py') or path.endswith('.test.js'):
+            # Python tests
+            if path.endswith('_test.py') or path.endswith('test_.py'):
+                tests.append(change.path)
+            # JavaScript/TypeScript tests
+            elif path.endswith('.test.js') or path.endswith('.test.ts') or path.endswith('.spec.js') or path.endswith('.spec.ts'):
+                tests.append(change.path)
+            # Dart/Flutter tests
+            elif path.endswith('_test.dart'):
+                tests.append(change.path)
+            # Generic test folder detection
+            elif 'test' in path and not any(tests):
                 tests.append(change.path)
 
         return tests

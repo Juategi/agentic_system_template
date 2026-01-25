@@ -235,6 +235,17 @@ class QAAgent(AgentInterface):
             "lint": "npm run lint",
             "type": "tsc --noEmit",
         },
+        "dart": {
+            "unit": "dart test",
+            "lint": "dart analyze",
+            "format": "dart format --set-exit-if-changed .",
+        },
+        "flutter": {
+            "unit": "flutter test",
+            "lint": "flutter analyze",
+            "format": "dart format --set-exit-if-changed .",
+            "build": "flutter build apk --debug",
+        },
     }
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -612,6 +623,17 @@ class QAAgent(AgentInterface):
             # Detect language from project files
             if (repo_path / "pyproject.toml").exists() or (repo_path / "requirements.txt").exists():
                 commands = self.DEFAULT_TEST_COMMANDS["python"].copy()
+            elif (repo_path / "pubspec.yaml").exists():
+                # Dart/Flutter project - check if it's Flutter
+                pubspec_path = repo_path / "pubspec.yaml"
+                try:
+                    pubspec_content = pubspec_path.read_text(encoding="utf-8")
+                    if "flutter:" in pubspec_content or "sdk: flutter" in pubspec_content:
+                        commands = self.DEFAULT_TEST_COMMANDS["flutter"].copy()
+                    else:
+                        commands = self.DEFAULT_TEST_COMMANDS["dart"].copy()
+                except Exception:
+                    commands = self.DEFAULT_TEST_COMMANDS["dart"].copy()
             elif (repo_path / "package.json").exists():
                 if (repo_path / "tsconfig.json").exists():
                     commands = self.DEFAULT_TEST_COMMANDS["typescript"].copy()
