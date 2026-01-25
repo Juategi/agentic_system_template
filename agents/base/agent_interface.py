@@ -13,55 +13,24 @@ It provides:
 
 All agent types (Planner, Developer, QA, Reviewer, Doc) must extend
 AgentInterface and implement its abstract methods.
-
-Agent Lifecycle:
-    ┌─────────────────────────────────────────────────────────────┐
-    │                      AGENT LIFECYCLE                         │
-    ├─────────────────────────────────────────────────────────────┤
-    │                                                             │
-    │  ┌──────────┐    ┌──────────┐    ┌──────────┐             │
-    │  │   INIT   │───▶│   RUN    │───▶│ CLEANUP  │             │
-    │  └──────────┘    └──────────┘    └──────────┘             │
-    │       │               │               │                    │
-    │       ▼               ▼               ▼                    │
-    │  Load config    Execute task    Write output              │
-    │  Load context   Use LLM         Update GitHub             │
-    │  Validate env   Make changes    Log results               │
-    │                                                             │
-    └─────────────────────────────────────────────────────────────┘
-
-Environment Variables:
-    Required for all agents:
-    - AGENT_TYPE: Type of agent (planner, developer, qa, reviewer, doc)
-    - PROJECT_ID: Project identifier
-    - ISSUE_NUMBER: GitHub issue to work on
-    - MEMORY_PATH: Path to memory volume
-    - REPO_PATH: Path to repository volume
-    - OUTPUT_PATH: Path to output volume
-    - GITHUB_TOKEN: GitHub API token
-    - GITHUB_REPO: Repository (owner/repo)
-    - LLM_PROVIDER: LLM provider (anthropic, openai)
-    - ANTHROPIC_API_KEY or OPENAI_API_KEY: LLM API key
-
-    Optional:
-    - MAX_ITERATIONS: Max iteration count (for context)
-    - ITERATION: Current iteration number
-    - LOG_LEVEL: Logging verbosity
 """
 
-# =============================================================================
-# DATA STRUCTURES
-# =============================================================================
-"""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
+import logging
+import os
+import traceback
 
+
+# =============================================================================
+# ENUMS AND DATA STRUCTURES
+# =============================================================================
 
 class AgentStatus(Enum):
-    '''Possible agent execution statuses.'''
+    """Possible agent execution statuses."""
     SUCCESS = "success"
     FAILURE = "failure"
     ERROR = "error"
@@ -70,7 +39,7 @@ class AgentStatus(Enum):
 
 @dataclass
 class AgentResult:
-    '''
+    """
     Standard result structure returned by all agents.
 
     Attributes:
@@ -84,7 +53,7 @@ class AgentResult:
 
     All agents return this structure to ensure consistent
     handling by the orchestrator.
-    '''
+    """
     status: AgentStatus
     output: Dict[str, Any]
     message: str
@@ -95,11 +64,11 @@ class AgentResult:
 
     @property
     def success(self) -> bool:
-        '''Check if execution was successful.'''
+        """Check if execution was successful."""
         return self.status == AgentStatus.SUCCESS
 
     def to_dict(self) -> dict:
-        '''Convert to dictionary for JSON serialization.'''
+        """Convert to dictionary for JSON serialization."""
         return {
             "status": self.status.value,
             "output": self.output,
@@ -110,10 +79,43 @@ class AgentResult:
             "timestamp": self.timestamp
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentResult":
+        """Create AgentResult from dictionary."""
+        return cls(
+            status=AgentStatus(data.get("status", "error")),
+            output=data.get("output", {}),
+            message=data.get("message", ""),
+            details=data.get("details", {}),
+            errors=data.get("errors", []),
+            metrics=data.get("metrics", {}),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat())
+        )
+
+    @classmethod
+    def error(cls, message: str, errors: List[str] = None) -> "AgentResult":
+        """Create an error result."""
+        return cls(
+            status=AgentStatus.ERROR,
+            output={},
+            message=message,
+            errors=errors or [message]
+        )
+
+    @classmethod
+    def failure(cls, message: str, output: Dict[str, Any] = None, details: Dict[str, Any] = None) -> "AgentResult":
+        """Create a failure result."""
+        return cls(
+            status=AgentStatus.FAILURE,
+            output=output or {},
+            message=message,
+            details=details or {}
+        )
+
 
 @dataclass
 class AgentContext:
-    '''
+    """
     Context data provided to agents.
 
     Attributes:
@@ -131,7 +133,7 @@ class AgentContext:
 
     The ContextLoader populates this structure from
     environment and mounted volumes.
-    '''
+    """
     # Identifiers
     issue_number: int
     project_id: str
@@ -152,14 +154,37 @@ class AgentContext:
 
     # Configuration
     config: Dict[str, Any] = field(default_factory=dict)
-"""
+
+    @property
+    def issue_title(self) -> str:
+        """Get issue title."""
+        return self.issue_data.get("title", "")
+
+    @property
+    def issue_body(self) -> str:
+        """Get issue body."""
+        return self.issue_data.get("body", "")
+
+    @property
+    def issue_labels(self) -> List[str]:
+        """Get issue labels."""
+        return self.issue_data.get("labels", [])
+
+    def get_memory_file(self, name: str) -> str:
+        """Get content of a memory file."""
+        return self.memory.get(name, "")
+
+    def has_memory_file(self, name: str) -> bool:
+        """Check if memory file exists."""
+        return name in self.memory and len(self.memory[name]) > 0
+
 
 # =============================================================================
 # AGENT INTERFACE
 # =============================================================================
-"""
+
 class AgentInterface(ABC):
-    '''
+    """
     Abstract base class for all agent implementations.
 
     All agent types must extend this class and implement
@@ -187,27 +212,84 @@ class AgentInterface(ABC):
             def execute(self, context: AgentContext) -> AgentResult:
                 # Implement development logic
                 return AgentResult(...)
-    '''
+    """
 
     def __init__(self):
-        '''
+        """
         Initialize the agent.
 
         Initialization steps:
         1. Set up logging
         2. Load configuration
-        3. Initialize LLM client
-        4. Initialize GitHub helper
-        5. Prepare output handler
-        '''
-        self.logger = None  # Configured logger
-        self.llm = None     # LLM client
-        self.github = None  # GitHub helper
-        self.output = None  # Output handler
-        self.config = {}    # Agent configuration
+        3. Initialize LLM client (lazy)
+        4. Initialize GitHub helper (lazy)
+        5. Prepare output handler (lazy)
+        """
+        self.logger = self._setup_logging()
+        self.config: Dict[str, Any] = {}
+        self._llm = None
+        self._github = None
+        self._output_handler = None
+        self._context_loader = None
+        self._start_time: Optional[datetime] = None
+        self._metrics: Dict[str, Any] = {
+            "llm_calls": 0,
+            "tokens_input": 0,
+            "tokens_output": 0,
+            "files_read": 0,
+            "files_modified": 0
+        }
+
+    def _setup_logging(self) -> logging.Logger:
+        """Set up agent-specific logger."""
+        log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        logger = logging.getLogger(f"agent.{self.get_agent_type()}")
+        logger.setLevel(getattr(logging, log_level, logging.INFO))
+
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+
+        return logger
+
+    @property
+    def llm(self):
+        """Lazy-load LLM client."""
+        if self._llm is None:
+            from .llm_client import LLMClient
+            self._llm = LLMClient()
+        return self._llm
+
+    @property
+    def github(self):
+        """Lazy-load GitHub helper."""
+        if self._github is None:
+            from .context_loader import GitHubHelper
+            self._github = GitHubHelper()
+        return self._github
+
+    @property
+    def output_handler(self):
+        """Lazy-load output handler."""
+        if self._output_handler is None:
+            from .output_handler import OutputHandler
+            self._output_handler = OutputHandler()
+        return self._output_handler
+
+    @property
+    def context_loader(self):
+        """Lazy-load context loader."""
+        if self._context_loader is None:
+            from .context_loader import ContextLoader
+            self._context_loader = ContextLoader()
+        return self._context_loader
 
     def run(self) -> AgentResult:
-        '''
+        """
         Main entry point for agent execution.
 
         This method orchestrates the agent lifecycle:
@@ -222,22 +304,33 @@ class AgentInterface(ABC):
 
         This method should NOT be overridden. Override
         execute() instead for agent-specific logic.
-        '''
+        """
+        self._start_time = datetime.utcnow()
+        self.logger.info(f"Starting {self.get_agent_type()} agent")
+
         try:
             # Load context
+            self.logger.debug("Loading context...")
             context = self._load_context()
+            self.logger.info(f"Context loaded for issue #{context.issue_number}")
 
             # Validate context
+            self.logger.debug("Validating context...")
             if not self.validate_context(context):
-                return AgentResult(
-                    status=AgentStatus.ERROR,
-                    output={},
-                    message="Context validation failed",
-                    errors=["Required context is missing or invalid"]
+                result = AgentResult.error(
+                    "Context validation failed",
+                    ["Required context is missing or invalid"]
                 )
+                self._finalize_result(result)
+                self._write_output(result)
+                return result
 
             # Execute agent logic
+            self.logger.info("Executing agent logic...")
             result = self.execute(context)
+
+            # Finalize metrics
+            self._finalize_result(result)
 
             # Write output
             self._write_output(result)
@@ -245,32 +338,42 @@ class AgentInterface(ABC):
             # Update GitHub (if applicable)
             self._update_github(context, result)
 
+            self.logger.info(f"Agent completed with status: {result.status.value}")
             return result
 
         except Exception as e:
-            # Handle unexpected errors
-            error_result = AgentResult(
-                status=AgentStatus.ERROR,
-                output={},
-                message=f"Agent execution failed: {str(e)}",
-                errors=[str(e)]
+            self.logger.error(f"Agent execution failed: {str(e)}")
+            self.logger.error(traceback.format_exc())
+
+            error_result = AgentResult.error(
+                f"Agent execution failed: {str(e)}",
+                [str(e), traceback.format_exc()]
             )
+            self._finalize_result(error_result)
             self._write_output(error_result)
             return error_result
 
+    def _finalize_result(self, result: AgentResult):
+        """Add execution metrics to result."""
+        if self._start_time:
+            duration = (datetime.utcnow() - self._start_time).total_seconds()
+            self._metrics["duration_seconds"] = duration
+
+        result.metrics.update(self._metrics)
+
     @abstractmethod
     def get_agent_type(self) -> str:
-        '''
+        """
         Return the agent type identifier.
 
         Returns:
             Agent type string (planner, developer, qa, reviewer, doc)
-        '''
+        """
         pass
 
     @abstractmethod
     def validate_context(self, context: AgentContext) -> bool:
-        '''
+        """
         Validate that context is sufficient for execution.
 
         Args:
@@ -284,12 +387,12 @@ class AgentInterface(ABC):
         - Required memory files exist
         - Issue has required fields
         - Configuration is complete
-        '''
+        """
         pass
 
     @abstractmethod
     def execute(self, context: AgentContext) -> AgentResult:
-        '''
+        """
         Execute the agent's primary task.
 
         Args:
@@ -304,11 +407,11 @@ class AgentInterface(ABC):
         - QA: Validate implementation
         - Reviewer: Review code
         - Doc: Update documentation
-        '''
+        """
         pass
 
     def _load_context(self) -> AgentContext:
-        '''
+        """
         Load context from environment and volumes.
 
         Uses ContextLoader to:
@@ -319,74 +422,51 @@ class AgentInterface(ABC):
 
         Returns:
             Populated AgentContext
-        '''
-        pass
+        """
+        return self.context_loader.load()
 
     def _write_output(self, result: AgentResult):
-        '''
+        """
         Write result to output volume.
 
         Uses OutputHandler to:
         1. Format result as JSON
         2. Write to output file
         3. Log summary
-        '''
-        pass
+        """
+        try:
+            self.output_handler.write_result(result)
+            self.logger.debug("Result written to output volume")
+        except Exception as e:
+            self.logger.error(f"Failed to write output: {e}")
 
     def _update_github(self, context: AgentContext, result: AgentResult):
-        '''
+        """
         Update GitHub issue with result.
 
         Posts comment with:
         - Agent type and status
         - Summary of actions taken
         - Errors if any
-        '''
-        pass
-'''
-"""
+        """
+        try:
+            from .output_handler import ResultFormatter
+            comment_body = ResultFormatter.to_markdown(result, self.get_agent_type())
+            self.github.add_comment(context.issue_number, comment_body)
+            self.logger.debug(f"Posted comment to issue #{context.issue_number}")
+        except Exception as e:
+            self.logger.warning(f"Failed to update GitHub: {e}")
 
-# =============================================================================
-# IMPLEMENTATION NOTES
-# =============================================================================
-"""
-Implementation Notes:
+    def track_llm_call(self, tokens_input: int = 0, tokens_output: int = 0):
+        """Track LLM API call metrics."""
+        self._metrics["llm_calls"] += 1
+        self._metrics["tokens_input"] += tokens_input
+        self._metrics["tokens_output"] += tokens_output
 
-1. AGENT CONTRACT
-   Every agent must:
-   - Implement the three abstract methods
-   - Return AgentResult from execute()
-   - Handle errors gracefully (don't crash)
-   - Write meaningful output
+    def track_file_read(self, count: int = 1):
+        """Track file read operations."""
+        self._metrics["files_read"] += count
 
-2. CONTEXT ISOLATION
-   Agents should only access:
-   - Mounted volumes (/memory, /repo, /output)
-   - Environment variables
-   - External APIs (GitHub, LLM)
-
-   Agents should NOT:
-   - Access host filesystem
-   - Communicate with other containers
-   - Maintain persistent state
-
-3. IDEMPOTENCY
-   Agents may be run multiple times for the same issue.
-   Implementations should:
-   - Check existing state before acting
-   - Not duplicate work
-   - Handle partial completion gracefully
-
-4. TESTING
-   Agents should be testable by:
-   - Mocking the LLM client
-   - Providing test context
-   - Verifying output structure
-
-   Example:
-       def test_developer_agent():
-           agent = DeveloperAgent()
-           context = create_test_context()
-           result = agent.execute(context)
-           assert result.status == AgentStatus.SUCCESS
-"""
+    def track_file_modified(self, count: int = 1):
+        """Track file modification operations."""
+        self._metrics["files_modified"] += count
