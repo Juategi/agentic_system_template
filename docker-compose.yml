@@ -1,0 +1,295 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - DOCKER COMPOSE CONFIGURATION
+# =============================================================================
+# This file defines the container orchestration for the AI agent system.
+# Use: docker-compose up [service_name]
+# =============================================================================
+
+version: '3.8'
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  ai-agent-network:
+    driver: bridge
+    name: ${DOCKER_NETWORK:-ai-agent-network}
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  # Persistent orchestrator state
+  orchestrator-state:
+    driver: local
+
+  # Redis data (if using Redis backend)
+  redis-data:
+    driver: local
+
+  # PostgreSQL data (if using PostgreSQL backend)
+  postgres-data:
+    driver: local
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # ORCHESTRATOR
+  # ---------------------------------------------------------------------------
+  # Central orchestration service that runs 24/7
+  # Manages task lifecycle, agent coordination, and state machine transitions
+  # ---------------------------------------------------------------------------
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.orchestrator
+    container_name: orchestrator
+    restart: unless-stopped
+    networks:
+      - ai-agent-network
+    environment:
+      # Project identification
+      - PROJECT_ID=${PROJECT_ID}
+      - PROJECT_NAME=${PROJECT_NAME}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+
+      # GitHub integration
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_API_URL=${GITHUB_API_URL:-https://api.github.com}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+
+      # LLM configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.2}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8192}
+
+      # Orchestrator settings
+      - ORCHESTRATOR_POLL_INTERVAL=${ORCHESTRATOR_POLL_INTERVAL:-30}
+      - ORCHESTRATOR_MAX_CONCURRENT_AGENTS=${ORCHESTRATOR_MAX_CONCURRENT_AGENTS:-3}
+      - ORCHESTRATOR_STATE_BACKEND=${ORCHESTRATOR_STATE_BACKEND:-file}
+      - ORCHESTRATOR_STATE_FILE=/data/orchestrator_state.json
+
+      # Agent settings
+      - AGENT_MAX_ITERATIONS=${AGENT_MAX_ITERATIONS:-5}
+      - AGENT_TIMEOUT=${AGENT_TIMEOUT:-1800}
+
+      # Feature flags
+      - ENABLE_AUTO_ASSIGN=${ENABLE_AUTO_ASSIGN:-true}
+      - ENABLE_PARALLEL_EXECUTION=${ENABLE_PARALLEL_EXECUTION:-true}
+      - ENABLE_WEBHOOKS=${ENABLE_WEBHOOKS:-false}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+
+      # Redis (if used)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+
+      # Docker socket for launching agent containers
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DOCKER_AGENT_IMAGE=${DOCKER_AGENT_IMAGE:-ai-agent:latest}
+      - DOCKER_NETWORK=${DOCKER_NETWORK:-ai-agent-network}
+    volumes:
+      # Docker socket for agent container management
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Orchestrator state persistence
+      - orchestrator-state:/data
+
+      # Project memory (shared with agents)
+      - ${LOCAL_MEMORY_PATH:-./memory}:/memory
+
+      # Code repository (shared with agents)
+      - ${LOCAL_REPO_PATH:-./repo}:/repo
+
+      # Logs
+      - ${LOG_PATH:-./logs}:/logs
+    ports:
+      # Webhook receiver port
+      - "${WEBHOOK_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # AGENT RUNNER
+  # ---------------------------------------------------------------------------
+  # Template service for agent containers
+  # Not started directly - orchestrator launches instances as needed
+  # This definition serves as a reference for agent container configuration
+  # ---------------------------------------------------------------------------
+  agent-runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    image: ${DOCKER_AGENT_IMAGE:-ai-agent:latest}
+    profiles:
+      - agent  # Only started explicitly, not with 'docker-compose up'
+    networks:
+      - ai-agent-network
+    environment:
+      # These are overridden by orchestrator when launching
+      - AGENT_TYPE=${AGENT_TYPE:-developer}
+      - PROJECT_ID=${PROJECT_ID}
+      - ISSUE_NUMBER=${ISSUE_NUMBER:-0}
+      - MAX_ITERATIONS=${AGENT_MAX_ITERATIONS:-5}
+
+      # Paths inside container
+      - MEMORY_PATH=/memory
+      - REPO_PATH=/repo
+      - OUTPUT_PATH=/output
+
+      # GitHub credentials
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO}
+
+      # LLM configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.2}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ${LOCAL_MEMORY_PATH:-./memory}:/memory
+      - ${LOCAL_REPO_PATH:-./repo}:/repo
+      - ${LOCAL_OUTPUT_PATH:-./output}:/output
+    deploy:
+      resources:
+        limits:
+          cpus: '${DOCKER_AGENT_CPU_LIMIT:-2}'
+          memory: ${DOCKER_AGENT_MEMORY_LIMIT:-4g}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # REDIS
+  # ---------------------------------------------------------------------------
+  # Optional: State and queue management
+  # Used when ORCHESTRATOR_STATE_BACKEND=redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - ai-agent-network
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # POSTGRESQL
+  # ---------------------------------------------------------------------------
+  # Optional: Persistent storage for metrics and audit logs
+  # Used when advanced metrics/audit storage is needed
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    profiles:
+      - full  # Only started with 'docker-compose --profile full up'
+    restart: unless-stopped
+    networks:
+      - ai-agent-network
+    environment:
+      - POSTGRES_USER=orchestrator
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-orchestrator_secret}
+      - POSTGRES_DB=orchestrator
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # WEBHOOK TUNNEL (Development Only)
+  # ---------------------------------------------------------------------------
+  # ngrok tunnel for receiving GitHub webhooks in development
+  # ---------------------------------------------------------------------------
+  webhook-tunnel:
+    image: ngrok/ngrok:latest
+    profiles:
+      - dev  # Only started with 'docker-compose --profile dev up'
+    networks:
+      - ai-agent-network
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command: http orchestrator:8080 --log=stdout
+    depends_on:
+      - orchestrator
+
+  # ---------------------------------------------------------------------------
+  # MONITORING (Optional)
+  # ---------------------------------------------------------------------------
+  # Prometheus metrics collection
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    profiles:
+      - monitoring
+    networks:
+      - ai-agent-network
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - orchestrator
+
+  # ---------------------------------------------------------------------------
+  # GRAFANA (Optional)
+  # ---------------------------------------------------------------------------
+  # Metrics visualization dashboard
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    profiles:
+      - monitoring
+    networks:
+      - ai-agent-network
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

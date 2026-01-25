@@ -1,0 +1,378 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - GITHUB INTEGRATION CONFIGURATION
+# =============================================================================
+# This file defines how the system integrates with GitHub Issues,
+# including label definitions, webhook handling, and API settings.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GITHUB CONNECTION
+# -----------------------------------------------------------------------------
+connection:
+  # API settings
+  api:
+    base_url: "${GITHUB_API_URL:-https://api.github.com}"
+    version: "2022-11-28"  # GitHub API version
+    timeout_seconds: 30
+
+  # Authentication method: token or app
+  auth_method: "token"
+
+  # Personal Access Token authentication
+  token:
+    value: "${GITHUB_TOKEN}"
+    # Required scopes: repo, issues, write:discussion
+
+  # GitHub App authentication (alternative)
+  app:
+    id: "${GITHUB_APP_ID}"
+    private_key_path: "${GITHUB_APP_PRIVATE_KEY_PATH}"
+    installation_id: "${GITHUB_APP_INSTALLATION_ID}"
+
+  # Repository settings
+  repository:
+    full_name: "${GITHUB_REPO}"  # Format: owner/repo
+
+# -----------------------------------------------------------------------------
+# ISSUE LABELS
+# -----------------------------------------------------------------------------
+# These labels are used to track issue state in the workflow.
+# The system will create these labels if they don't exist.
+# -----------------------------------------------------------------------------
+labels:
+  # Workflow state labels
+  states:
+    ready:
+      name: "READY"
+      color: "0E8A16"  # Green
+      description: "Task is ready for agent assignment"
+
+    in_progress:
+      name: "IN_PROGRESS"
+      color: "FBCA04"  # Yellow
+      description: "Agent is currently working on this task"
+
+    qa:
+      name: "QA"
+      color: "1D76DB"  # Blue
+      description: "Task is undergoing quality assurance"
+
+    qa_failed:
+      name: "QA_FAILED"
+      color: "E99695"  # Light red
+      description: "QA failed, returning to development"
+
+    review:
+      name: "REVIEW"
+      color: "5319E7"  # Purple
+      description: "Task is under code review"
+
+    blocked:
+      name: "BLOCKED"
+      color: "D93F0B"  # Red
+      description: "Task requires human intervention"
+
+    done:
+      name: "DONE"
+      color: "0E8A16"  # Green
+      description: "Task completed successfully"
+
+  # Issue type labels
+  types:
+    feature:
+      name: "feature"
+      color: "A2EEEF"  # Light cyan
+      description: "A feature to be decomposed into tasks"
+
+    task:
+      name: "task"
+      color: "D4C5F9"  # Light purple
+      description: "An actionable development task"
+
+    bug:
+      name: "bug"
+      color: "D73A4A"  # Red
+      description: "A bug to be fixed"
+
+    subtask:
+      name: "subtask"
+      color: "BFD4F2"  # Light blue
+      description: "A subtask of a larger feature"
+
+  # Priority labels
+  priorities:
+    critical:
+      name: "priority:critical"
+      color: "B60205"  # Dark red
+      description: "Critical priority - immediate attention needed"
+
+    high:
+      name: "priority:high"
+      color: "D93F0B"  # Red
+      description: "High priority"
+
+    medium:
+      name: "priority:medium"
+      color: "FBCA04"  # Yellow
+      description: "Medium priority"
+
+    low:
+      name: "priority:low"
+      color: "0E8A16"  # Green
+      description: "Low priority"
+
+  # Agent-specific labels
+  agents:
+    planner_assigned:
+      name: "agent:planner"
+      color: "C5DEF5"
+      description: "Assigned to Planner Agent"
+
+    developer_assigned:
+      name: "agent:developer"
+      color: "C5DEF5"
+      description: "Assigned to Developer Agent"
+
+    qa_assigned:
+      name: "agent:qa"
+      color: "C5DEF5"
+      description: "Assigned to QA Agent"
+
+    reviewer_assigned:
+      name: "agent:reviewer"
+      color: "C5DEF5"
+      description: "Assigned to Reviewer Agent"
+
+# -----------------------------------------------------------------------------
+# ISSUE TEMPLATES
+# -----------------------------------------------------------------------------
+# Define how issues should be structured for optimal agent processing.
+# -----------------------------------------------------------------------------
+issue_templates:
+  feature:
+    title_prefix: "[Feature]"
+    required_sections:
+      - name: "Description"
+        description: "Detailed description of the feature"
+      - name: "Acceptance Criteria"
+        description: "List of criteria that must be met"
+      - name: "Technical Considerations"
+        description: "Any technical constraints or considerations"
+    optional_sections:
+      - name: "Dependencies"
+        description: "Other features or tasks this depends on"
+      - name: "Out of Scope"
+        description: "What is explicitly not included"
+
+  task:
+    title_prefix: "[Task]"
+    required_sections:
+      - name: "Description"
+        description: "Clear description of what needs to be done"
+      - name: "Acceptance Criteria"
+        description: "Specific, testable criteria"
+    optional_sections:
+      - name: "Implementation Notes"
+        description: "Hints for implementation"
+      - name: "Related Issues"
+        description: "Links to related issues"
+
+  bug:
+    title_prefix: "[Bug]"
+    required_sections:
+      - name: "Description"
+        description: "What is the bug"
+      - name: "Steps to Reproduce"
+        description: "How to reproduce the issue"
+      - name: "Expected Behavior"
+        description: "What should happen"
+      - name: "Actual Behavior"
+        description: "What actually happens"
+    optional_sections:
+      - name: "Environment"
+        description: "Environment details"
+
+# -----------------------------------------------------------------------------
+# WEBHOOK CONFIGURATION
+# -----------------------------------------------------------------------------
+webhooks:
+  # Webhook endpoint settings
+  server:
+    enabled: "${ENABLE_WEBHOOKS:-false}"
+    host: "${WEBHOOK_HOST:-0.0.0.0}"
+    port: "${WEBHOOK_PORT:-8080}"
+    path: "/webhooks/github"
+
+  # Webhook secret for validation
+  secret: "${GITHUB_WEBHOOK_SECRET}"
+
+  # Events to subscribe to
+  events:
+    - "issues"
+    - "issue_comment"
+    - "label"
+
+  # Event handlers
+  handlers:
+    issues:
+      # When a new issue is opened
+      opened:
+        action: "triage_issue"
+        conditions:
+          - "has_label:feature OR has_label:task OR has_label:bug"
+
+      # When an issue is labeled
+      labeled:
+        action: "check_state_transition"
+
+      # When an issue is reopened
+      reopened:
+        action: "requeue_issue"
+        set_label: "READY"
+
+    issue_comment:
+      # When a human comments on an issue
+      created:
+        action: "process_human_feedback"
+        conditions:
+          - "author_is_not_bot"
+
+# -----------------------------------------------------------------------------
+# POLLING CONFIGURATION
+# -----------------------------------------------------------------------------
+# Used when webhooks are disabled or as a fallback.
+# -----------------------------------------------------------------------------
+polling:
+  enabled: true  # Always enabled as fallback
+  interval_seconds: "${ORCHESTRATOR_POLL_INTERVAL:-30}"
+
+  # Queries for finding actionable issues
+  queries:
+    # Find issues ready to be processed
+    ready_issues:
+      state: "open"
+      labels:
+        include: ["READY"]
+        exclude: ["BLOCKED"]
+      sort: "created"
+      direction: "asc"
+
+    # Find in-progress issues (for recovery after restart)
+    in_progress_issues:
+      state: "open"
+      labels:
+        include: ["IN_PROGRESS"]
+      sort: "updated"
+      direction: "desc"
+
+    # Find blocked issues (for monitoring)
+    blocked_issues:
+      state: "open"
+      labels:
+        include: ["BLOCKED"]
+
+# -----------------------------------------------------------------------------
+# RATE LIMITING
+# -----------------------------------------------------------------------------
+rate_limiting:
+  # GitHub API rate limit handling
+  api:
+    # Requests per hour (GitHub default is 5000 for authenticated)
+    max_requests_per_hour: 4000
+
+    # Buffer before hitting limit
+    safety_buffer_percent: 20
+
+    # Wait strategy when approaching limit
+    wait_strategy: "exponential_backoff"
+
+  # Issue operations
+  operations:
+    # Max issues to process per minute
+    issues_per_minute: 10
+
+    # Max comments to post per minute
+    comments_per_minute: 5
+
+# -----------------------------------------------------------------------------
+# COMMENT FORMATTING
+# -----------------------------------------------------------------------------
+comments:
+  # Prefix for all agent comments
+  prefix: "🤖 **[AI Agent]**"
+
+  # Templates for different comment types
+  templates:
+    agent_started: |
+      ${prefix} **${agent_type} Agent** has started working on this issue.
+
+      - Iteration: ${iteration}/${max_iterations}
+      - Started at: ${timestamp}
+
+    agent_completed: |
+      ${prefix} **${agent_type} Agent** has completed.
+
+      **Result:** ${result}
+
+      <details>
+      <summary>Details</summary>
+
+      ${details}
+
+      </details>
+
+    qa_passed: |
+      ${prefix} ✅ **QA Passed**
+
+      All acceptance criteria have been met.
+
+      ${test_summary}
+
+    qa_failed: |
+      ${prefix} ❌ **QA Failed**
+
+      **Issues Found:**
+      ${issues}
+
+      **Feedback:**
+      ${feedback}
+
+      Returning to development. (Iteration ${iteration}/${max_iterations})
+
+    blocked: |
+      ${prefix} ⚠️ **Task Blocked**
+
+      This task requires human intervention.
+
+      **Reason:** ${reason}
+
+      Please review and either:
+      1. Provide guidance in a comment
+      2. Update the requirements
+      3. Remove the BLOCKED label when ready to retry
+
+    completed: |
+      ${prefix} ✅ **Task Completed**
+
+      This task has been successfully completed and verified.
+
+      **Summary:**
+      ${summary}
+
+# -----------------------------------------------------------------------------
+# ISSUE LINKING
+# -----------------------------------------------------------------------------
+linking:
+  # Parent-child relationship tracking
+  parent_child:
+    # How to link parent issues to children
+    parent_reference_format: "Parent: #${parent_number}"
+    child_reference_format: "Subtask of #${parent_number}"
+
+  # Dependency tracking
+  dependencies:
+    # Keywords to detect dependencies
+    keywords: ["depends on", "blocked by", "requires"]
+
+    # Label for issues with unmet dependencies
+    blocked_label: "has-dependencies"

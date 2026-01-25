@@ -1,0 +1,25 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - AGENT REQUIREMENTS
+# =============================================================================
+# Additional dependencies for agent containers.
+# =============================================================================
+
+# Git Operations
+gitpython>=3.1.40
+
+# Code Quality Tools
+ruff>=0.1.0
+mypy>=1.8.0
+
+# Testing (for QA agent)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+
+# Code Parsing
+tree-sitter>=0.20.0
+ast-comments>=1.0.0
+
+# File Operations
+pathspec>=0.12.0
+watchdog>=3.0.0

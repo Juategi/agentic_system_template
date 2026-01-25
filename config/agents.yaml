@@ -1,0 +1,378 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - AGENT DEFINITIONS
+# =============================================================================
+# This file defines all available agent types, their configurations,
+# capabilities, and behavioral parameters.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GLOBAL AGENT SETTINGS
+# -----------------------------------------------------------------------------
+global:
+  # Default Docker image for all agents
+  docker_image: "${DOCKER_AGENT_IMAGE:-ai-agent:latest}"
+
+  # Default resource limits
+  resources:
+    cpu_limit: 2
+    memory_limit: "4g"
+    timeout_seconds: 1800
+
+  # Default iteration limits
+  max_iterations: 5
+
+  # Retry configuration
+  retry:
+    max_retries: 3
+    backoff_seconds: 30
+
+# -----------------------------------------------------------------------------
+# AGENT TYPE DEFINITIONS
+# -----------------------------------------------------------------------------
+agents:
+
+  # ---------------------------------------------------------------------------
+  # PLANNER AGENT
+  # ---------------------------------------------------------------------------
+  # Responsibility: Analyze complex features and decompose them into smaller,
+  # actionable GitHub Issues. Creates the task hierarchy and dependencies.
+  # ---------------------------------------------------------------------------
+  planner:
+    name: "Planner Agent"
+    description: |
+      The Planner Agent is responsible for breaking down complex features into
+      smaller, manageable tasks. It analyzes the feature requirements, identifies
+      dependencies, and creates a structured plan of GitHub Issues.
+
+    # Environment variable that identifies this agent type
+    type_identifier: "planner"
+
+    # LLM configuration override (optional)
+    llm:
+      model: "${LLM_MODEL_PLANNER:-claude-sonnet-4-20250514}"
+      temperature: 0.3
+      max_tokens: 8192
+
+    # Capabilities and permissions
+    capabilities:
+      - read_memory
+      - write_memory
+      - create_issues
+      - update_issues
+      - add_labels
+      - add_comments
+
+    # Input requirements
+    inputs:
+      required:
+        - feature_issue_number  # The parent feature issue to decompose
+        - project_context       # Path to PROJECT.md
+      optional:
+        - architecture_context  # Path to ARCHITECTURE.md
+        - constraints_context   # Path to CONSTRAINTS.md
+
+    # Expected outputs
+    outputs:
+      - created_issues          # List of created sub-issue numbers
+      - feature_memory_file     # Path to created feature memory file
+      - decomposition_summary   # Summary of the planning decisions
+
+    # Behavioral parameters
+    behavior:
+      # Maximum number of sub-issues to create from one feature
+      max_sub_issues: 10
+
+      # Minimum granularity (estimated hours per sub-issue)
+      min_task_granularity_hours: 2
+      max_task_granularity_hours: 8
+
+      # Whether to create dependency links between issues
+      create_dependencies: true
+
+      # Whether to estimate complexity for each sub-issue
+      estimate_complexity: true
+
+    # Prompts directory
+    prompts_dir: "agents/planner/prompts"
+
+  # ---------------------------------------------------------------------------
+  # DEVELOPER AGENT
+  # ---------------------------------------------------------------------------
+  # Responsibility: Implement code changes to fulfill the requirements
+  # specified in a GitHub Issue. Works within the codebase to add features,
+  # fix bugs, or refactor code.
+  # ---------------------------------------------------------------------------
+  developer:
+    name: "Developer Agent"
+    description: |
+      The Developer Agent implements code changes based on GitHub Issue
+      requirements. It reads the issue description, understands the context
+      from memory files, and produces working code that meets acceptance criteria.
+
+    type_identifier: "developer"
+
+    llm:
+      model: "${LLM_MODEL_DEVELOPER:-claude-sonnet-4-20250514}"
+      temperature: 0.2
+      max_tokens: 16384
+
+    capabilities:
+      - read_memory
+      - read_code
+      - write_code
+      - read_issues
+      - add_comments
+      - run_commands  # Limited to build/test commands
+
+    inputs:
+      required:
+        - issue_number
+        - repo_path
+        - memory_path
+      optional:
+        - previous_qa_feedback  # If this is a retry after QA failure
+        - iteration_number
+
+    outputs:
+      - modified_files      # List of files changed
+      - commit_message      # Suggested commit message
+      - implementation_notes # Notes about the implementation
+      - tests_added         # List of tests added (if any)
+
+    behavior:
+      # File operation limits
+      max_files_modified: 20
+      max_lines_per_file: 500
+
+      # Code quality requirements
+      require_tests: false  # Set to true to require test coverage
+      run_linter: true
+
+      # Git behavior
+      create_branch: true
+      branch_prefix: "agent/"
+      auto_commit: false  # Commits require QA approval
+
+    prompts_dir: "agents/developer/prompts"
+
+  # ---------------------------------------------------------------------------
+  # QA AGENT
+  # ---------------------------------------------------------------------------
+  # Responsibility: Validate that implemented changes meet the acceptance
+  # criteria defined in the GitHub Issue. Runs tests, checks requirements,
+  # and provides feedback.
+  # ---------------------------------------------------------------------------
+  qa:
+    name: "QA Agent"
+    description: |
+      The QA Agent validates that code changes meet acceptance criteria.
+      It runs tests, verifies requirements are met, checks for regressions,
+      and provides detailed feedback for the developer if issues are found.
+
+    type_identifier: "qa"
+
+    llm:
+      model: "${LLM_MODEL_QA:-claude-sonnet-4-20250514}"
+      temperature: 0.1  # Low temperature for consistent validation
+      max_tokens: 8192
+
+    capabilities:
+      - read_memory
+      - read_code
+      - read_issues
+      - update_issues
+      - add_comments
+      - add_labels
+      - run_commands  # For running tests
+
+    inputs:
+      required:
+        - issue_number
+        - repo_path
+        - modified_files  # List from developer agent
+      optional:
+        - test_commands   # Specific test commands to run
+
+    outputs:
+      - qa_result         # PASS or FAIL
+      - test_results      # Detailed test output
+      - acceptance_checklist  # Checklist of criteria with pass/fail
+      - feedback          # Detailed feedback if failed
+      - suggested_fixes   # Suggestions for fixing issues
+
+    behavior:
+      # Validation strictness
+      require_all_tests_pass: true
+      require_no_linter_errors: true
+
+      # Test execution
+      test_timeout_seconds: 300
+      run_integration_tests: false  # Can be enabled per-project
+
+      # Feedback detail level
+      feedback_verbosity: "detailed"
+      include_fix_suggestions: true
+
+    prompts_dir: "agents/qa/prompts"
+
+  # ---------------------------------------------------------------------------
+  # REVIEWER AGENT
+  # ---------------------------------------------------------------------------
+  # Responsibility: Review code quality, architecture alignment, and
+  # adherence to project conventions. Provides feedback and approval.
+  # ---------------------------------------------------------------------------
+  reviewer:
+    name: "Reviewer Agent"
+    description: |
+      The Reviewer Agent performs code review focusing on quality, consistency,
+      and alignment with project architecture and conventions. It ensures the
+      code meets standards before being considered complete.
+
+    type_identifier: "reviewer"
+
+    llm:
+      model: "${LLM_MODEL_REVIEWER:-claude-sonnet-4-20250514}"
+      temperature: 0.2
+      max_tokens: 8192
+
+    capabilities:
+      - read_memory
+      - read_code
+      - read_issues
+      - add_comments
+      - request_changes  # Can request changes to implementation
+
+    inputs:
+      required:
+        - issue_number
+        - repo_path
+        - modified_files
+        - conventions_context  # Path to CONVENTIONS.md
+      optional:
+        - architecture_context
+
+    outputs:
+      - review_result      # APPROVED or CHANGES_REQUESTED
+      - review_comments    # Inline comments and suggestions
+      - quality_score      # Overall quality assessment
+      - improvement_areas  # Areas that could be improved
+
+    behavior:
+      # Review criteria weights (0-1)
+      criteria_weights:
+        code_quality: 0.3
+        convention_adherence: 0.2
+        architecture_alignment: 0.2
+        maintainability: 0.15
+        documentation: 0.15
+
+      # Minimum score to approve (0-100)
+      approval_threshold: 70
+
+      # Whether to block on style issues
+      block_on_style_issues: false
+
+    prompts_dir: "agents/reviewer/prompts"
+
+  # ---------------------------------------------------------------------------
+  # DOCUMENTATION AGENT
+  # ---------------------------------------------------------------------------
+  # Responsibility: Update project memory, documentation, and maintain
+  # the historical record of changes and decisions.
+  # ---------------------------------------------------------------------------
+  doc:
+    name: "Documentation Agent"
+    description: |
+      The Documentation Agent maintains project memory and documentation.
+      It updates feature files, records decisions, captures learnings,
+      and ensures the knowledge base stays current.
+
+    type_identifier: "doc"
+
+    llm:
+      model: "${LLM_MODEL_DOC:-claude-haiku-4-20250514}"  # Smaller model for doc tasks
+      temperature: 0.3
+      max_tokens: 4096
+
+    capabilities:
+      - read_memory
+      - write_memory
+      - read_issues
+      - add_comments
+      - read_code  # To understand what was implemented
+
+    inputs:
+      required:
+        - issue_number
+        - feature_memory_file
+        - implementation_notes  # From developer agent
+      optional:
+        - qa_feedback
+        - review_comments
+
+    outputs:
+      - updated_memory_files  # List of memory files updated
+      - changelog_entry       # Entry for changelog
+      - documentation_updates # List of doc updates made
+
+    behavior:
+      # What to document
+      document_decisions: true
+      document_alternatives_considered: true
+      document_qa_feedback: true
+
+      # Memory file management
+      create_feature_memory_if_missing: true
+      archive_completed_features: false
+
+    prompts_dir: "agents/doc/prompts"
+
+# -----------------------------------------------------------------------------
+# AGENT EXECUTION RULES
+# -----------------------------------------------------------------------------
+execution_rules:
+  # Order of agent execution in the standard workflow
+  standard_workflow:
+    - planner      # First: decompose feature into tasks
+    - developer    # Then: implement each task
+    - qa           # Then: validate implementation
+    - reviewer     # Then: review code quality
+    - doc          # Finally: update documentation
+
+  # Agents that can trigger workflow loops
+  loop_triggers:
+    qa:
+      on_fail: developer  # Return to developer on QA failure
+      max_loops: "${AGENT_MAX_ITERATIONS:-5}"
+    reviewer:
+      on_changes_requested: developer
+      max_loops: 3
+
+  # Agents that can run in parallel (if enabled)
+  parallel_eligible:
+    - qa
+    - reviewer
+
+# -----------------------------------------------------------------------------
+# AGENT COMMUNICATION CONTRACT
+# -----------------------------------------------------------------------------
+communication:
+  # How agents communicate with each other (via orchestrator)
+  channel: "orchestrator_mediated"
+
+  # Standard output format for all agents
+  output_format: "json"
+
+  # GitHub Issue as communication medium
+  github_issue:
+    # Labels to use for agent communication
+    labels:
+      in_progress: "IN_PROGRESS"
+      needs_qa: "QA"
+      qa_failed: "QA_FAILED"
+      needs_review: "REVIEW"
+      blocked: "BLOCKED"
+      done: "DONE"
+
+    # Comment templates
+    comment_prefix: "[AI Agent]"

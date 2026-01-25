@@ -1,0 +1,65 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - ORCHESTRATOR DOCKERFILE
+# =============================================================================
+# This Dockerfile builds the orchestrator image.
+# The orchestrator runs 24/7 and coordinates all agent activity.
+# =============================================================================
+
+FROM python:3.11-slim
+
+# Labels
+LABEL maintainer="AI Agent System"
+LABEL description="Orchestrator for AI Agent Development System"
+LABEL version="1.0.0"
+
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Working directory
+WORKDIR /app
+
+# Install system dependencies
+# - curl: for health checks
+# - git: for repository operations
+# - docker-cli: for launching agent containers
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first (for layer caching)
+COPY requirements.txt .
+COPY requirements-orchestrator.txt .
+
+# Install Python dependencies
+# Core dependencies:
+# - langchain: LLM framework
+# - langgraph: State machine
+# - anthropic/openai: LLM providers
+# - docker: Container management
+# - aiohttp: Async HTTP for webhooks
+# - pyyaml: Configuration
+# - redis: State backend (optional)
+# - prometheus-client: Metrics
+RUN pip install -r requirements.txt -r requirements-orchestrator.txt
+
+# Copy application code
+COPY orchestrator/ ./orchestrator/
+COPY config/ ./config/
+
+# Create directories for mounted volumes
+RUN mkdir -p /memory /repo /data /logs
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Expose webhook port
+EXPOSE 8080
+
+# Run orchestrator
+CMD ["python", "-m", "orchestrator.main"]

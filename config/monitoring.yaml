@@ -1,0 +1,385 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - MONITORING CONFIGURATION
+# =============================================================================
+# This file defines metrics collection, logging, alerting, and audit
+# trail configurations for the system.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# LOGGING CONFIGURATION
+# -----------------------------------------------------------------------------
+logging:
+  # Global log level
+  level: "${LOG_LEVEL:-INFO}"
+
+  # Log format: json or text
+  format: "${LOG_FORMAT:-json}"
+
+  # Output destinations
+  outputs:
+    # Console output
+    console:
+      enabled: true
+      level: "${LOG_LEVEL:-INFO}"
+      format: "text"  # More readable for console
+
+    # File output
+    file:
+      enabled: true
+      path: "${LOG_PATH:-./logs}/orchestrator.log"
+      level: "DEBUG"  # Capture all for file
+      format: "json"
+      rotation:
+        max_size_mb: 100
+        max_files: 10
+        compress: true
+
+    # Structured logging for analysis
+    structured:
+      enabled: true
+      path: "${LOG_PATH:-./logs}/structured.jsonl"
+      format: "jsonl"
+
+  # Log categories
+  categories:
+    orchestrator:
+      level: "INFO"
+    agents:
+      level: "INFO"
+    github:
+      level: "INFO"
+    langgraph:
+      level: "DEBUG"  # More detail for state machine
+    llm:
+      level: "INFO"
+
+  # Sensitive data masking
+  masking:
+    enabled: true
+    patterns:
+      - "GITHUB_TOKEN"
+      - "API_KEY"
+      - "SECRET"
+      - "PASSWORD"
+
+# -----------------------------------------------------------------------------
+# METRICS CONFIGURATION
+# -----------------------------------------------------------------------------
+metrics:
+  enabled: "${ENABLE_METRICS:-true}"
+
+  # Export format
+  format: "prometheus"
+
+  # Metrics endpoint
+  endpoint:
+    path: "/metrics"
+    port: 8080
+
+  # Metric definitions
+  definitions:
+    # Issue metrics
+    issues:
+      - name: "issues_total"
+        type: "counter"
+        description: "Total number of issues processed"
+        labels: ["issue_type", "result"]
+
+      - name: "issues_in_progress"
+        type: "gauge"
+        description: "Number of issues currently in progress"
+        labels: ["state"]
+
+      - name: "issue_processing_duration_seconds"
+        type: "histogram"
+        description: "Time to process an issue from READY to DONE"
+        buckets: [60, 300, 600, 1800, 3600, 7200]
+
+    # Agent metrics
+    agents:
+      - name: "agent_executions_total"
+        type: "counter"
+        description: "Total agent executions"
+        labels: ["agent_type", "result"]
+
+      - name: "agent_execution_duration_seconds"
+        type: "histogram"
+        description: "Agent execution duration"
+        labels: ["agent_type"]
+        buckets: [30, 60, 120, 300, 600, 1200]
+
+      - name: "agent_active"
+        type: "gauge"
+        description: "Number of currently running agents"
+        labels: ["agent_type"]
+
+    # Iteration metrics
+    iterations:
+      - name: "qa_iterations_total"
+        type: "counter"
+        description: "Total QA iterations"
+        labels: ["result"]  # pass, fail
+
+      - name: "iterations_per_issue"
+        type: "histogram"
+        description: "Number of iterations before issue completion"
+        buckets: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    # LLM metrics
+    llm:
+      - name: "llm_requests_total"
+        type: "counter"
+        description: "Total LLM API requests"
+        labels: ["model", "agent_type"]
+
+      - name: "llm_tokens_total"
+        type: "counter"
+        description: "Total tokens used"
+        labels: ["model", "token_type"]  # input, output
+
+      - name: "llm_request_duration_seconds"
+        type: "histogram"
+        description: "LLM request duration"
+        labels: ["model"]
+        buckets: [1, 2, 5, 10, 30, 60]
+
+      - name: "llm_cost_dollars"
+        type: "counter"
+        description: "Estimated LLM cost in dollars"
+        labels: ["model"]
+
+    # GitHub API metrics
+    github:
+      - name: "github_api_requests_total"
+        type: "counter"
+        description: "Total GitHub API requests"
+        labels: ["endpoint", "method", "status"]
+
+      - name: "github_rate_limit_remaining"
+        type: "gauge"
+        description: "Remaining GitHub API rate limit"
+
+    # System metrics
+    system:
+      - name: "orchestrator_uptime_seconds"
+        type: "counter"
+        description: "Orchestrator uptime"
+
+      - name: "state_transitions_total"
+        type: "counter"
+        description: "Total state machine transitions"
+        labels: ["from_state", "to_state"]
+
+# -----------------------------------------------------------------------------
+# TRACING CONFIGURATION
+# -----------------------------------------------------------------------------
+tracing:
+  enabled: "${ENABLE_TRACING:-true}"
+
+  # Tracing backend: jaeger, zipkin, otlp
+  backend: "otlp"
+
+  # Export endpoint
+  endpoint: "${TRACE_ENDPOINT}"
+
+  # Sampling
+  sampling:
+    rate: 1.0  # Sample all traces (adjust for production)
+
+  # Trace context
+  context:
+    # Include these in all traces
+    include:
+      - project_id
+      - issue_number
+      - agent_type
+
+# -----------------------------------------------------------------------------
+# ALERTING CONFIGURATION
+# -----------------------------------------------------------------------------
+alerting:
+  enabled: true
+
+  # Alert channels
+  channels:
+    log:
+      enabled: true
+      level: "WARNING"
+
+    github_comment:
+      enabled: true
+      # Post alert as comment on affected issue
+
+    # Optional: External webhook
+    webhook:
+      enabled: false
+      url: "${ALERT_WEBHOOK_URL}"
+
+    # Optional: Email
+    email:
+      enabled: false
+      smtp_host: "${SMTP_HOST}"
+      smtp_port: 587
+      from: "orchestrator@example.com"
+      to: ["team@example.com"]
+
+  # Alert rules
+  rules:
+    # Task stuck in a state
+    task_stuck:
+      condition: "issue_in_state_duration > 2h"
+      severity: "warning"
+      message: "Issue #${issue_number} has been in ${state} for over 2 hours"
+      channels: ["log", "github_comment"]
+
+    # Max iterations reached
+    max_iterations_reached:
+      condition: "iterations >= max_iterations"
+      severity: "error"
+      message: "Issue #${issue_number} reached maximum iterations (${iterations})"
+      channels: ["log", "github_comment"]
+
+    # Agent failure
+    agent_failure:
+      condition: "agent_exit_code != 0"
+      severity: "error"
+      message: "${agent_type} Agent failed on issue #${issue_number}"
+      channels: ["log"]
+
+    # High failure rate
+    high_failure_rate:
+      condition: "failure_rate_1h > 0.5"
+      severity: "critical"
+      message: "High failure rate detected: ${failure_rate}%"
+      channels: ["log", "webhook"]
+
+    # GitHub rate limit approaching
+    rate_limit_warning:
+      condition: "github_rate_limit_remaining < 500"
+      severity: "warning"
+      message: "GitHub API rate limit approaching: ${remaining} remaining"
+      channels: ["log"]
+
+    # LLM cost threshold
+    llm_cost_threshold:
+      condition: "llm_cost_daily > 100"
+      severity: "warning"
+      message: "Daily LLM cost exceeded $100: $${cost}"
+      channels: ["log"]
+
+# -----------------------------------------------------------------------------
+# AUDIT TRAIL CONFIGURATION
+# -----------------------------------------------------------------------------
+audit:
+  enabled: true
+
+  # What to audit
+  events:
+    # Issue lifecycle events
+    - type: "issue_state_change"
+      capture: ["issue_number", "from_state", "to_state", "timestamp", "trigger"]
+
+    # Agent execution events
+    - type: "agent_execution"
+      capture: ["agent_type", "issue_number", "start_time", "end_time", "result", "output_summary"]
+
+    # Code change events
+    - type: "code_change"
+      capture: ["issue_number", "files_modified", "commit_hash", "agent_type"]
+
+    # Decision events
+    - type: "decision"
+      capture: ["issue_number", "decision_type", "input", "output", "reasoning"]
+
+    # GitHub API events
+    - type: "github_api"
+      capture: ["endpoint", "method", "status", "timestamp"]
+
+  # Storage backend
+  storage:
+    # File-based audit log
+    file:
+      enabled: true
+      path: "${LOG_PATH:-./logs}/audit.jsonl"
+      rotation:
+        max_size_mb: 500
+        max_files: 30
+
+    # Database storage (optional)
+    database:
+      enabled: false
+      url: "${DATABASE_URL}"
+      table: "audit_log"
+
+  # Retention
+  retention:
+    days: 90
+    archive: true
+    archive_path: "${LOG_PATH:-./logs}/archive"
+
+# -----------------------------------------------------------------------------
+# DASHBOARDS CONFIGURATION
+# -----------------------------------------------------------------------------
+dashboards:
+  # Grafana dashboard definitions
+  grafana:
+    enabled: true
+    provisioning_path: "./monitoring/grafana/provisioning"
+
+    dashboards:
+      - name: "System Overview"
+        file: "system-overview.json"
+        description: "High-level system health and throughput"
+
+      - name: "Agent Performance"
+        file: "agent-performance.json"
+        description: "Agent execution metrics and trends"
+
+      - name: "Issue Pipeline"
+        file: "issue-pipeline.json"
+        description: "Issue flow through the system"
+
+      - name: "Cost Analysis"
+        file: "cost-analysis.json"
+        description: "LLM and resource cost tracking"
+
+# -----------------------------------------------------------------------------
+# HEALTH CHECKS
+# -----------------------------------------------------------------------------
+health:
+  enabled: true
+  endpoint: "/health"
+
+  checks:
+    # Orchestrator process
+    - name: "orchestrator"
+      type: "process"
+      critical: true
+
+    # GitHub API connectivity
+    - name: "github_api"
+      type: "http"
+      url: "https://api.github.com/rate_limit"
+      headers:
+        Authorization: "Bearer ${GITHUB_TOKEN}"
+      timeout_seconds: 10
+      critical: true
+
+    # Redis connectivity (if used)
+    - name: "redis"
+      type: "tcp"
+      host: "redis"
+      port: 6379
+      timeout_seconds: 5
+      critical: false
+
+    # Docker socket
+    - name: "docker"
+      type: "socket"
+      path: "/var/run/docker.sock"
+      critical: true
+
+  # Health check response format
+  response:
+    include_details: true
+    include_version: true

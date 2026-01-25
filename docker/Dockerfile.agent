@@ -1,0 +1,88 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - UNIFIED AGENT DOCKERFILE
+# =============================================================================
+# This Dockerfile builds the SINGLE agent image used by ALL agent types.
+# Agent behavior is determined by the AGENT_TYPE environment variable.
+#
+# Agent Types:
+# - planner: Decomposes features into tasks
+# - developer: Implements code changes
+# - qa: Validates implementations
+# - reviewer: Reviews code quality
+# - doc: Updates documentation
+# =============================================================================
+
+FROM python:3.11-slim
+
+# Labels
+LABEL maintainer="AI Agent System"
+LABEL description="Unified AI Agent for Development System"
+LABEL version="1.0.0"
+
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Agent-specific environment (defaults, overridden at runtime)
+ENV AGENT_TYPE=developer
+ENV MEMORY_PATH=/memory
+ENV REPO_PATH=/repo
+ENV OUTPUT_PATH=/output
+ENV INPUT_PATH=/input
+
+# Working directory
+WORKDIR /app
+
+# Install system dependencies
+# - git: for code operations
+# - build-essential: for compiling some Python packages
+# - Node.js: for JavaScript projects (optional)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional: Install Node.js for JS/TS projects
+# Uncomment if your projects use JavaScript/TypeScript
+# RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+#     && apt-get install -y nodejs \
+#     && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+COPY requirements-agent.txt .
+
+# Install Python dependencies
+# Core dependencies:
+# - langchain: LLM framework
+# - anthropic/openai: LLM providers
+# - PyGithub: GitHub API
+# - gitpython: Git operations
+# - pytest: For QA agent
+# - ruff: For linting
+RUN pip install -r requirements.txt -r requirements-agent.txt
+
+# Copy agent code
+COPY agents/ ./agents/
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Create directories for mounted volumes
+RUN mkdir -p /memory /repo /output /input
+
+# Configure git (for developer agent)
+RUN git config --global user.email "ai-agent@system.local" \
+    && git config --global user.name "AI Agent"
+
+# Use non-root user for security
+RUN useradd -m -s /bin/bash agent
+RUN chown -R agent:agent /app /memory /repo /output /input
+USER agent
+
+# Entrypoint handles agent type selection
+ENTRYPOINT ["/entrypoint.sh"]

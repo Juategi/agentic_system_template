@@ -1,0 +1,375 @@
+# =============================================================================
+# AI AGENT DEVELOPMENT SYSTEM - ORCHESTRATOR CONFIGURATION
+# =============================================================================
+# This file defines the orchestrator's behavior, state machine configuration,
+# and LangChain/LangGraph settings.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ORCHESTRATOR IDENTITY
+# -----------------------------------------------------------------------------
+orchestrator:
+  name: "AI Agent Orchestrator"
+  version: "1.0.0"
+  description: |
+    Central orchestration system that manages the AI agent development workflow.
+    Runs continuously (24/7), monitors GitHub Issues, and coordinates agent execution.
+
+# -----------------------------------------------------------------------------
+# LANGCHAIN CONFIGURATION
+# -----------------------------------------------------------------------------
+langchain:
+  # LLM provider settings (inherited from environment)
+  llm:
+    provider: "${LLM_PROVIDER:-anthropic}"
+    model: "${LLM_MODEL_ORCHESTRATOR:-claude-sonnet-4-20250514}"
+    temperature: 0.1  # Low temperature for deterministic orchestration
+    max_tokens: 4096
+    request_timeout: 60
+
+  # Callback configuration
+  callbacks:
+    enable_tracing: "${ENABLE_TRACING:-true}"
+    trace_project: "${PROJECT_ID}"
+
+  # Tool definitions for orchestrator LLM
+  tools:
+    - name: "read_issue"
+      description: "Read a GitHub Issue by number"
+    - name: "update_issue"
+      description: "Update a GitHub Issue's state or labels"
+    - name: "launch_agent"
+      description: "Launch an agent container with specified type and parameters"
+    - name: "read_memory"
+      description: "Read project memory files"
+    - name: "check_agent_status"
+      description: "Check the status of a running agent"
+
+# -----------------------------------------------------------------------------
+# LANGGRAPH STATE MACHINE
+# -----------------------------------------------------------------------------
+langgraph:
+  # Graph name
+  graph_name: "agent_workflow"
+
+  # State schema definition
+  state_schema:
+    issue_number:
+      type: integer
+      description: "Current GitHub Issue being processed"
+    issue_state:
+      type: string
+      enum: [READY, PLANNING, DEVELOPMENT, QA, QA_FAILED, REVIEW, DOCUMENTATION, DONE, BLOCKED]
+    current_agent:
+      type: string
+      nullable: true
+    iteration_count:
+      type: integer
+      default: 0
+    max_iterations:
+      type: integer
+      default: 5
+    last_agent_output:
+      type: object
+      nullable: true
+    error_message:
+      type: string
+      nullable: true
+    history:
+      type: array
+      items:
+        type: object
+
+  # Node definitions
+  nodes:
+    # -----------------------------------------
+    # ENTRY NODE: Issue Triage
+    # -----------------------------------------
+    triage:
+      description: |
+        Entry point for new issues. Determines if issue is a feature
+        (needs planning) or a task (goes directly to development).
+      handler: "orchestrator.nodes.triage_node"
+      transitions:
+        - condition: "is_feature"
+          target: "planning"
+        - condition: "is_task"
+          target: "development"
+        - condition: "is_invalid"
+          target: "blocked"
+
+    # -----------------------------------------
+    # PLANNING NODE
+    # -----------------------------------------
+    planning:
+      description: |
+        Launches the Planner Agent to decompose a feature into sub-tasks.
+        Creates child issues and feature memory file.
+      handler: "orchestrator.nodes.planning_node"
+      agent_type: "planner"
+      transitions:
+        - condition: "success"
+          target: "await_subtasks"
+        - condition: "failure"
+          target: "blocked"
+
+    # -----------------------------------------
+    # AWAIT SUBTASKS NODE
+    # -----------------------------------------
+    await_subtasks:
+      description: |
+        Waits for all child issues to be completed before marking
+        the parent feature as done.
+      handler: "orchestrator.nodes.await_subtasks_node"
+      transitions:
+        - condition: "all_subtasks_done"
+          target: "documentation"
+        - condition: "subtasks_pending"
+          target: "await_subtasks"  # Loop back
+
+    # -----------------------------------------
+    # DEVELOPMENT NODE
+    # -----------------------------------------
+    development:
+      description: |
+        Launches the Developer Agent to implement the task.
+        Produces code changes based on issue requirements.
+      handler: "orchestrator.nodes.development_node"
+      agent_type: "developer"
+      on_entry:
+        - update_issue_label: "IN_PROGRESS"
+      transitions:
+        - condition: "success"
+          target: "qa"
+        - condition: "failure"
+          target: "blocked"
+
+    # -----------------------------------------
+    # QA NODE
+    # -----------------------------------------
+    qa:
+      description: |
+        Launches the QA Agent to validate the implementation.
+        Checks acceptance criteria and runs tests.
+      handler: "orchestrator.nodes.qa_node"
+      agent_type: "qa"
+      on_entry:
+        - update_issue_label: "QA"
+      transitions:
+        - condition: "pass"
+          target: "review"
+        - condition: "fail_retriable"
+          target: "qa_failed"
+        - condition: "fail_blocked"
+          target: "blocked"
+
+    # -----------------------------------------
+    # QA FAILED NODE
+    # -----------------------------------------
+    qa_failed:
+      description: |
+        Handles QA failure. Increments iteration counter and either
+        returns to development or escalates to blocked.
+      handler: "orchestrator.nodes.qa_failed_node"
+      on_entry:
+        - update_issue_label: "QA_FAILED"
+        - increment_iteration
+      transitions:
+        - condition: "can_retry"
+          target: "development"
+        - condition: "max_iterations_reached"
+          target: "blocked"
+
+    # -----------------------------------------
+    # REVIEW NODE
+    # -----------------------------------------
+    review:
+      description: |
+        Launches the Reviewer Agent to check code quality
+        and alignment with project standards.
+      handler: "orchestrator.nodes.review_node"
+      agent_type: "reviewer"
+      on_entry:
+        - update_issue_label: "REVIEW"
+      transitions:
+        - condition: "approved"
+          target: "documentation"
+        - condition: "changes_requested"
+          target: "development"
+        - condition: "failure"
+          target: "blocked"
+
+    # -----------------------------------------
+    # DOCUMENTATION NODE
+    # -----------------------------------------
+    documentation:
+      description: |
+        Launches the Doc Agent to update project memory
+        and documentation with implementation details.
+      handler: "orchestrator.nodes.documentation_node"
+      agent_type: "doc"
+      transitions:
+        - condition: "success"
+          target: "done"
+        - condition: "failure"
+          target: "done"  # Doc failure doesn't block completion
+
+    # -----------------------------------------
+    # DONE NODE
+    # -----------------------------------------
+    done:
+      description: |
+        Terminal state indicating successful completion.
+        Updates issue to DONE status.
+      handler: "orchestrator.nodes.done_node"
+      on_entry:
+        - update_issue_label: "DONE"
+        - close_issue
+      is_terminal: true
+
+    # -----------------------------------------
+    # BLOCKED NODE
+    # -----------------------------------------
+    blocked:
+      description: |
+        Terminal state indicating the task requires human intervention.
+        Alerts and waits for manual resolution.
+      handler: "orchestrator.nodes.blocked_node"
+      on_entry:
+        - update_issue_label: "BLOCKED"
+        - send_alert
+      is_terminal: true
+
+  # Edge definitions (transitions between nodes)
+  edges:
+    conditional:
+      - from: "triage"
+        router: "triage_router"
+      - from: "planning"
+        router: "planning_router"
+      - from: "development"
+        router: "development_router"
+      - from: "qa"
+        router: "qa_router"
+      - from: "qa_failed"
+        router: "qa_failed_router"
+      - from: "review"
+        router: "review_router"
+      - from: "documentation"
+        router: "documentation_router"
+
+# -----------------------------------------------------------------------------
+# EXECUTION SETTINGS
+# -----------------------------------------------------------------------------
+execution:
+  # Polling configuration (when webhooks are disabled)
+  polling:
+    enabled: "${ENABLE_WEBHOOKS:-false}"
+    interval_seconds: "${ORCHESTRATOR_POLL_INTERVAL:-30}"
+    batch_size: 10  # Max issues to process per poll
+
+  # Webhook configuration
+  webhooks:
+    enabled: "${ENABLE_WEBHOOKS:-false}"
+    endpoint: "/webhooks/github"
+    port: 8080
+
+  # Concurrency settings
+  concurrency:
+    max_parallel_agents: "${ORCHESTRATOR_MAX_CONCURRENT_AGENTS:-3}"
+    queue_strategy: "fifo"  # fifo, priority, round_robin
+
+  # Agent container management
+  agent_containers:
+    # How long to wait for agent to start
+    startup_timeout_seconds: 30
+
+    # How long agent can run before being killed
+    execution_timeout_seconds: "${AGENT_TIMEOUT:-1800}"
+
+    # Whether to remove containers after completion
+    auto_remove: true
+
+    # Log collection
+    collect_logs: true
+    log_retention_days: 7
+
+# -----------------------------------------------------------------------------
+# STATE PERSISTENCE
+# -----------------------------------------------------------------------------
+persistence:
+  # Backend for state storage
+  backend: "${ORCHESTRATOR_STATE_BACKEND:-file}"
+
+  # File backend settings
+  file:
+    path: "${ORCHESTRATOR_STATE_FILE:-/data/orchestrator_state.json}"
+    backup_enabled: true
+    backup_interval_minutes: 60
+
+  # Redis backend settings
+  redis:
+    url: "${REDIS_URL:-redis://localhost:6379/0}"
+    key_prefix: "orchestrator:"
+    ttl_seconds: 86400  # 24 hours
+
+  # State recovery
+  recovery:
+    # Resume incomplete tasks on restart
+    resume_on_restart: true
+
+    # How to handle orphaned agent processes
+    orphan_handling: "terminate_and_retry"
+
+# -----------------------------------------------------------------------------
+# MONITORING AND ALERTING
+# -----------------------------------------------------------------------------
+monitoring:
+  # Health check endpoint
+  health_check:
+    enabled: true
+    endpoint: "/health"
+
+  # Metrics export
+  metrics:
+    enabled: "${ENABLE_METRICS:-true}"
+    endpoint: "/metrics"
+    format: "prometheus"
+
+  # Alerting
+  alerts:
+    # Alert on task blocked
+    on_blocked:
+      enabled: true
+      channels: ["log", "github_comment"]
+
+    # Alert on max iterations reached
+    on_max_iterations:
+      enabled: true
+      channels: ["log", "github_comment"]
+
+    # Alert on agent failure
+    on_agent_failure:
+      enabled: true
+      channels: ["log"]
+
+# -----------------------------------------------------------------------------
+# SAFETY AND LIMITS
+# -----------------------------------------------------------------------------
+safety:
+  # Global rate limiting
+  rate_limits:
+    github_api_calls_per_minute: 30
+    llm_calls_per_minute: 20
+    agent_launches_per_minute: 10
+
+  # Circuit breaker
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    recovery_timeout_seconds: 300
+
+  # Emergency stop
+  emergency_stop:
+    # File that, if present, halts all processing
+    trigger_file: "/data/.emergency_stop"

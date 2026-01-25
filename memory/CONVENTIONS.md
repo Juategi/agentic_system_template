@@ -1,0 +1,365 @@
+# Coding Conventions
+
+## Overview
+
+<!--
+This file defines the coding standards and conventions for the project.
+All agents (especially Developer) must follow these conventions.
+Human developers should also adhere to these standards.
+-->
+
+## General Principles
+
+1. **Clarity over Cleverness**: Write code that is easy to understand
+2. **Consistency**: Follow established patterns in the codebase
+3. **DRY (Don't Repeat Yourself)**: Avoid code duplication
+4. **KISS (Keep It Simple)**: Choose simple solutions over complex ones
+5. **YAGNI (You Aren't Gonna Need It)**: Don't add functionality until needed
+
+## File Organization
+
+### Directory Structure
+```
+src/
+├── components/          # UI components (if applicable)
+├── services/            # Business logic services
+├── models/              # Data models and types
+├── utils/               # Utility functions
+├── config/              # Configuration
+└── tests/               # Test files mirror src structure
+```
+
+### File Naming
+- **Python**: `snake_case.py`
+- **JavaScript/TypeScript**: `camelCase.js` or `PascalCase.tsx` for components
+- **CSS/SCSS**: `kebab-case.css`
+- **Tests**: `test_<module>.py` or `<module>.test.js`
+- **Documentation**: `UPPERCASE.md` for top-level, `lowercase.md` for others
+
+## Code Style
+
+### Python
+
+```python
+# Imports: stdlib, third-party, local (separated by blank lines)
+import os
+from typing import Optional, List
+
+import requests
+
+from myproject.utils import helper
+
+
+# Classes: PascalCase
+class MyService:
+    """
+    Brief description of the class.
+
+    Longer description if needed.
+    """
+
+    def __init__(self, config: dict):
+        """Initialize the service."""
+        self.config = config
+
+    # Methods: snake_case
+    def process_data(self, data: List[dict]) -> Optional[dict]:
+        """
+        Process the input data.
+
+        Args:
+            data: List of data dictionaries to process
+
+        Returns:
+            Processed result or None if no data
+        """
+        if not data:
+            return None
+
+        # Implementation here
+        return result
+
+
+# Functions: snake_case
+def calculate_total(items: List[float]) -> float:
+    """Calculate the total of all items."""
+    return sum(items)
+
+
+# Constants: UPPER_SNAKE_CASE
+MAX_RETRIES = 3
+DEFAULT_TIMEOUT = 30
+```
+
+### JavaScript/TypeScript
+
+```typescript
+// Imports at top, organized
+import { useState, useEffect } from 'react';
+import type { User, Config } from './types';
+import { formatDate } from '../utils';
+
+// Constants: UPPER_SNAKE_CASE
+const MAX_ITEMS = 100;
+const API_BASE_URL = '/api/v1';
+
+// Interfaces: PascalCase with I prefix (optional)
+interface UserData {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+// Functions: camelCase
+function calculateTotal(items: number[]): number {
+  return items.reduce((sum, item) => sum + item, 0);
+}
+
+// Arrow functions for callbacks
+const processItems = (items: string[]) => {
+  return items.map(item => item.trim());
+};
+
+// Components: PascalCase
+function UserProfile({ user }: { user: UserData }) {
+  const [isLoading, setIsLoading] = useState(false);
+
+  return (
+    <div className="user-profile">
+      <h1>{user.name}</h1>
+    </div>
+  );
+}
+
+export default UserProfile;
+```
+
+## Error Handling
+
+### Python
+```python
+# Use specific exceptions
+class ValidationError(Exception):
+    """Raised when validation fails."""
+    pass
+
+# Catch specific exceptions
+try:
+    result = process_data(data)
+except ValidationError as e:
+    logger.error(f"Validation failed: {e}")
+    raise
+except Exception as e:
+    logger.exception("Unexpected error processing data")
+    raise RuntimeError("Data processing failed") from e
+```
+
+### JavaScript/TypeScript
+```typescript
+// Use custom error classes
+class ApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+// Async error handling
+async function fetchData(url: string): Promise<Data> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new ApiError('Request failed', response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      // Handle API errors
+      throw error;
+    }
+    // Handle network errors
+    throw new Error(`Network error: ${error.message}`);
+  }
+}
+```
+
+## Comments and Documentation
+
+### When to Comment
+- Complex algorithms or business logic
+- Non-obvious code decisions
+- Workarounds or temporary solutions (with TODO/FIXME)
+- Public APIs and interfaces
+
+### Comment Style
+```python
+# Single line comments for brief explanations
+x = x + 1  # Increment counter
+
+# Multi-line comments for complex explanations
+# This algorithm uses a modified binary search to find
+# the optimal insertion point while maintaining the
+# sorted order of the existing elements.
+
+# TODO: Refactor this when the new API is available
+# FIXME: This workaround handles edge case #123
+```
+
+### Docstrings
+```python
+def complex_function(param1: str, param2: int, optional: bool = False) -> dict:
+    """
+    Brief one-line description.
+
+    Longer description explaining the function's purpose,
+    behavior, and any important details.
+
+    Args:
+        param1: Description of param1
+        param2: Description of param2
+        optional: Description of optional param. Defaults to False.
+
+    Returns:
+        Description of return value
+
+    Raises:
+        ValueError: When param1 is empty
+        TypeError: When param2 is negative
+
+    Example:
+        >>> result = complex_function("test", 42)
+        >>> print(result)
+        {'status': 'success'}
+    """
+    pass
+```
+
+## Testing Conventions
+
+### Test File Structure
+```python
+# test_user_service.py
+
+import pytest
+from myproject.services import UserService
+
+# Fixtures at top
+@pytest.fixture
+def user_service():
+    """Create a UserService instance for testing."""
+    return UserService(config={})
+
+@pytest.fixture
+def sample_user():
+    """Create sample user data."""
+    return {"id": "1", "name": "Test User"}
+
+
+# Test classes group related tests
+class TestUserCreation:
+    """Tests for user creation functionality."""
+
+    def test_create_user_with_valid_data(self, user_service, sample_user):
+        """Creating a user with valid data should succeed."""
+        result = user_service.create(sample_user)
+        assert result.id == sample_user["id"]
+
+    def test_create_user_with_invalid_email_raises_error(self, user_service):
+        """Creating a user with invalid email should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            user_service.create({"email": "invalid"})
+```
+
+### Test Naming
+- `test_<function>_<scenario>_<expected_result>`
+- Example: `test_calculate_total_with_empty_list_returns_zero`
+
+## Git Conventions
+
+### Branch Naming
+- `feature/<issue-number>-<brief-description>`
+- `fix/<issue-number>-<brief-description>`
+- `agent/<issue-number>` (for agent-created branches)
+
+### Commit Messages
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+
+Types:
+- feat: New feature
+- fix: Bug fix
+- docs: Documentation
+- style: Formatting
+- refactor: Code restructuring
+- test: Adding tests
+- chore: Maintenance
+
+Example:
+feat(auth): add password reset endpoint
+
+Implement password reset flow with email verification.
+Includes rate limiting and token expiration.
+
+Closes #123
+```
+
+## API Conventions
+
+### REST Endpoints
+```
+GET    /api/v1/users          # List users
+POST   /api/v1/users          # Create user
+GET    /api/v1/users/:id      # Get user
+PUT    /api/v1/users/:id      # Update user
+DELETE /api/v1/users/:id      # Delete user
+
+# Nested resources
+GET    /api/v1/users/:id/posts
+```
+
+### Response Format
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "page": 1,
+    "total": 100
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid email format",
+    "details": { ... }
+  }
+}
+```
+
+## Linting and Formatting
+
+### Python
+- Linter: `ruff`
+- Formatter: `ruff format` or `black`
+- Type checker: `mypy`
+- Line length: 88 characters
+
+### JavaScript/TypeScript
+- Linter: `eslint`
+- Formatter: `prettier`
+- Line length: 80-100 characters
+
+---
+
+*Last updated: [TIMESTAMP]*
+*Agents must follow these conventions*
