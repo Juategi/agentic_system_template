@@ -30,8 +30,54 @@ Output:
 Critical Role:
     NO TASK IS COMPLETE WITHOUT QA PASSING.
     This agent is the quality gate of the entire system.
+
+Usage:
+    from agents.qa import QAAgent, QAVerdict
+
+    agent = QAAgent()
+    result = agent.run()  # Returns AgentResult with QA report
+
+    # Check verdict
+    if result.output["qa_result"] == "PASS":
+        print("Ready for review!")
+    else:
+        print(result.output["feedback"])
+
+    # With custom config
+    agent = QAAgent(config={
+        "require_all_tests_pass": True,
+        "test_timeout_seconds": 600
+    })
 """
 
-from agents.qa.qa_agent import QAAgent
+from .qa_agent import (
+    QAAgent,
+    QAVerdict,
+    CriterionResult,
+    AcceptanceCriterion,
+    CriterionVerification,
+    TestResult,
+    FixSuggestion,
+    QAReport,
+    CRITERION_VERIFICATION_SCHEMA,
+    FIX_SUGGESTIONS_SCHEMA,
+)
 
-__all__ = ["QAAgent"]
+__all__ = [
+    # Main agent
+    "QAAgent",
+    # Enums
+    "QAVerdict",
+    "CriterionResult",
+    # Data classes
+    "AcceptanceCriterion",
+    "CriterionVerification",
+    "TestResult",
+    "FixSuggestion",
+    "QAReport",
+    # Schemas
+    "CRITERION_VERIFICATION_SCHEMA",
+    "FIX_SUGGESTIONS_SCHEMA",
+]
+
+__version__ = "0.1.0"
