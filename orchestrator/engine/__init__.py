@@ -60,6 +60,38 @@ from orchestrator.engine.state_manager import (
     cleanup_completed_states,
 )
 
+from orchestrator.engine.langchain_setup import (
+    # Main class
+    LangChainEngine,
+    create_langchain_engine,
+    # Configuration
+    LLMConfig,
+    LLMProvider,
+    # Data structures
+    LLMResponse,
+    ToolCall,
+    ToolResult,
+    LLMMetrics,
+    # Tools
+    ToolRegistry,
+    TOOL_SCHEMAS,
+    # Prompts
+    TRIAGE_PROMPT,
+    TRANSITION_PROMPT,
+    PLANNING_PROMPT,
+    # Clients
+    LLMClientInterface,
+    AnthropicClient,
+    OpenAIClient,
+    AzureOpenAIClient,
+    OllamaClient,
+    # Exceptions
+    LangChainError,
+    LLMProviderError,
+    ToolExecutionError,
+    ConfigurationError,
+)
+
 __all__ = [
     # State Manager
     "StateManager",
@@ -67,20 +99,48 @@ __all__ = [
     "FileStateManager",
     "RedisStateManager",
     "PostgreSQLStateManager",
-    # Data structures
+    # State Data structures
     "WorkflowState",
     "TransitionRecord",
     "IssueState",
-    # Exceptions
+    # State Exceptions
     "StateManagerError",
     "StateNotFoundError",
     "StateConcurrencyError",
     "StateBackendError",
     "StateValidationError",
-    # Utilities
+    # State Utilities
     "recover_orphaned_states",
     "cleanup_completed_states",
-    # To be implemented
+    # LangChain Engine
     "LangChainEngine",
+    "create_langchain_engine",
+    # LLM Configuration
+    "LLMConfig",
+    "LLMProvider",
+    # LLM Data structures
+    "LLMResponse",
+    "ToolCall",
+    "ToolResult",
+    "LLMMetrics",
+    # Tools
+    "ToolRegistry",
+    "TOOL_SCHEMAS",
+    # Prompts
+    "TRIAGE_PROMPT",
+    "TRANSITION_PROMPT",
+    "PLANNING_PROMPT",
+    # LLM Clients
+    "LLMClientInterface",
+    "AnthropicClient",
+    "OpenAIClient",
+    "AzureOpenAIClient",
+    "OllamaClient",
+    # LangChain Exceptions
+    "LangChainError",
+    "LLMProviderError",
+    "ToolExecutionError",
+    "ConfigurationError",
+    # To be implemented
     "WorkflowEngine",
 ]
