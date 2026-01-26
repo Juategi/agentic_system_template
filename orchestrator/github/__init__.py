@@ -21,10 +21,33 @@ Features:
 
 Authentication:
     Supports both Personal Access Tokens and GitHub Apps.
+
+Usage:
+    from orchestrator.github import GitHubClient, GitHubAPIError
+
+    client = GitHubClient(token="ghp_xxx", repo="owner/repo")
+    issue = client.get_issue(123)
 """
 
+from orchestrator.github.client import (
+    GitHubClient,
+    GitHubAPIError,
+    RateLimitError,
+    NotFoundError,
+    AuthenticationError,
+    ValidationError,
+)
+
 __all__ = [
+    # Client
     "GitHubClient",
+    # Exceptions
+    "GitHubAPIError",
+    "RateLimitError",
+    "NotFoundError",
+    "AuthenticationError",
+    "ValidationError",
+    # High-level (to be implemented)
     "IssueManager",
     "WebhookHandler",
 ]
