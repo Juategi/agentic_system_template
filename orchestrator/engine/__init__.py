@@ -25,20 +25,62 @@ Usage:
         LangChainEngine,
         WorkflowEngine,
         StateManager,
+        WorkflowState,
+        IssueState,
     )
 
     # Initialize components
     llm_engine = LangChainEngine(config)
-    state_manager = StateManager(config)
+    state_manager = await StateManager.create(config)
     workflow = WorkflowEngine(llm_engine, state_manager)
 
     # Run workflow for an issue
     result = await workflow.run(issue_number=123)
 """
 
+from orchestrator.engine.state_manager import (
+    # Main classes
+    StateManager,
+    StateManagerInterface,
+    FileStateManager,
+    RedisStateManager,
+    PostgreSQLStateManager,
+    # Data structures
+    WorkflowState,
+    TransitionRecord,
+    IssueState,
+    # Exceptions
+    StateManagerError,
+    StateNotFoundError,
+    StateConcurrencyError,
+    StateBackendError,
+    StateValidationError,
+    # Utilities
+    recover_orphaned_states,
+    cleanup_completed_states,
+)
+
 __all__ = [
+    # State Manager
+    "StateManager",
+    "StateManagerInterface",
+    "FileStateManager",
+    "RedisStateManager",
+    "PostgreSQLStateManager",
+    # Data structures
+    "WorkflowState",
+    "TransitionRecord",
+    "IssueState",
+    # Exceptions
+    "StateManagerError",
+    "StateNotFoundError",
+    "StateConcurrencyError",
+    "StateBackendError",
+    "StateValidationError",
+    # Utilities
+    "recover_orphaned_states",
+    "cleanup_completed_states",
+    # To be implemented
     "LangChainEngine",
     "WorkflowEngine",
-    "StateManager",
-    "WorkflowState",
 ]
