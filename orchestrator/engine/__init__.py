@@ -92,6 +92,23 @@ from orchestrator.engine.langchain_setup import (
     ConfigurationError,
 )
 
+from orchestrator.engine.langgraph_workflow import (
+    # Main class
+    WorkflowEngine,
+    create_workflow_engine,
+    # State types
+    GraphState,
+    NodeResult,
+    # Exceptions
+    WorkflowError,
+    WorkflowNodeError,
+    WorkflowTransitionError,
+    WorkflowTimeoutError,
+    WorkflowConfigError,
+    # Constants
+    LANGGRAPH_AVAILABLE,
+)
+
 __all__ = [
     # State Manager
     "StateManager",
@@ -141,6 +158,18 @@ __all__ = [
     "LLMProviderError",
     "ToolExecutionError",
     "ConfigurationError",
-    # To be implemented
+    # Workflow Engine
     "WorkflowEngine",
+    "create_workflow_engine",
+    # Workflow State types
+    "GraphState",
+    "NodeResult",
+    # Workflow Exceptions
+    "WorkflowError",
+    "WorkflowNodeError",
+    "WorkflowTransitionError",
+    "WorkflowTimeoutError",
+    "WorkflowConfigError",
+    # Workflow Constants
+    "LANGGRAPH_AVAILABLE",
 ]

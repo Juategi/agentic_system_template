@@ -51,21 +51,70 @@ from orchestrator.scheduler.agent_launcher import (
     ImageNotFoundError,
 )
 
+from orchestrator.scheduler.queue_manager import (
+    # Main class
+    QueueManager,
+    create_queue_manager,
+    # Backend interface
+    QueueBackendInterface,
+    MemoryQueueBackend,
+    RedisQueueBackend,
+    # Data structures
+    QueueItem,
+    QueueStats,
+    RateLimitConfig,
+    # Enums
+    Priority,
+    QueueStatus,
+    # Rate limiter
+    RateLimiter,
+    # Exceptions
+    QueueError,
+    QueueFullError,
+    RateLimitError,
+    DependencyError,
+    # Constants
+    PRIORITY_LABELS,
+    REDIS_AVAILABLE,
+)
+
 __all__ = [
-    # Main classes
+    # Agent Launcher
     "AgentLauncher",
     "ContainerPool",
-    # Enums
+    # Agent Enums
     "AgentType",
     "ContainerStatus",
-    # Data classes
+    # Agent Data classes
     "AgentResult",
     "ContainerInfo",
-    # Exceptions
+    # Agent Exceptions
     "AgentLauncherError",
     "ContainerLaunchError",
     "ContainerTimeoutError",
     "ImageNotFoundError",
-    # To be implemented
+    # Queue Manager
     "QueueManager",
+    "create_queue_manager",
+    # Queue Backends
+    "QueueBackendInterface",
+    "MemoryQueueBackend",
+    "RedisQueueBackend",
+    # Queue Data structures
+    "QueueItem",
+    "QueueStats",
+    "RateLimitConfig",
+    # Queue Enums
+    "Priority",
+    "QueueStatus",
+    # Rate Limiter
+    "RateLimiter",
+    # Queue Exceptions
+    "QueueError",
+    "QueueFullError",
+    "RateLimitError",
+    "DependencyError",
+    # Queue Constants
+    "PRIORITY_LABELS",
+    "REDIS_AVAILABLE",
 ]

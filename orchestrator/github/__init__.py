@@ -38,16 +38,45 @@ from orchestrator.github.client import (
     ValidationError,
 )
 
+from orchestrator.github.issue_manager import (
+    IssueManager,
+    create_issue_manager,
+    # Enums
+    WorkflowLabel,
+    IssueType,
+    # Templates
+    COMMENT_TEMPLATES,
+    # Constants
+    ALL_STATE_LABELS,
+    LABEL_COLORS,
+    # Exceptions
+    IssueManagerError,
+    IssueTransitionError,
+    IssueNotFoundError,
+)
+
 __all__ = [
     # Client
     "GitHubClient",
-    # Exceptions
+    # Client Exceptions
     "GitHubAPIError",
     "RateLimitError",
     "NotFoundError",
     "AuthenticationError",
     "ValidationError",
-    # High-level (to be implemented)
+    # Issue Manager
     "IssueManager",
-    "WebhookHandler",
+    "create_issue_manager",
+    # Issue Enums
+    "WorkflowLabel",
+    "IssueType",
+    # Issue Templates
+    "COMMENT_TEMPLATES",
+    # Issue Constants
+    "ALL_STATE_LABELS",
+    "LABEL_COLORS",
+    # Issue Exceptions
+    "IssueManagerError",
+    "IssueTransitionError",
+    "IssueNotFoundError",
 ]

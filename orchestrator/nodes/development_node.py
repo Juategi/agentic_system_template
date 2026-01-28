@@ -4,334 +4,193 @@
 """
 Development Node Implementation
 
-This node handles the implementation phase where the Developer Agent
-writes code to fulfill the requirements specified in a GitHub Issue.
+Launches the Developer Agent to implement code changes for a task.
+Handles both first attempts and retries with QA feedback.
 
 Workflow Position:
-    TRIAGE ──(is_task)──▶ DEVELOPMENT ──▶ QA
-                               ▲
-    QA_FAILED ─────────────────┘
-    REVIEW ──(changes_requested)──┘
-
-Responsibilities:
-    1. Prepare development context
-    2. Include previous QA feedback (if retry)
-    3. Launch Developer Agent container
-    4. Wait for agent completion
-    5. Capture modified files
-    6. Update workflow state
-
-Input State Requirements:
-    - issue_number: The task issue to implement
-    - issue_type: Must be "task" or "bug"
-    - (Optional) metadata.qa_feedback: Feedback from failed QA
-
-Output State Changes:
-    - last_agent_output: Developer agent results
-    - metadata.modified_files: List of files changed
-    - metadata.branch_name: Git branch created (if any)
-    - iteration_count: Unchanged (incremented in qa_failed_node)
-
-The Dev→QA Loop:
-    This node may be entered multiple times for the same issue
-    as part of the iterative development loop. Each iteration
-    receives feedback from the previous QA cycle.
+    TRIAGE --(is_task/bug)--> DEVELOPMENT --> QA
+    QA_FAILED --------------> DEVELOPMENT --> QA
 """
 
-# =============================================================================
-# NODE IMPLEMENTATION
-# =============================================================================
-"""
-async def development_node(state: WorkflowState, context: NodeContext) -> WorkflowState:
-    '''
-    Execute the development node logic.
+from __future__ import annotations
 
-    Args:
-        state: Current workflow state
-        context: Node execution context
+import logging
+from typing import Dict, List, Any, Optional, Tuple
 
-    Returns:
-        Updated workflow state
+from orchestrator.engine.state_manager import IssueState
+from orchestrator.scheduler.agent_launcher import AgentType
+from orchestrator.nodes._base import (
+    NodeContext,
+    launch_agent_and_wait,
+    update_labels,
+    post_comment,
+    add_history_entry,
+    extract_acceptance_criteria,
+    load_project_context,
+    NODE_CONFIGS,
+)
 
-    Execution Flow:
-    1. Update issue label to IN_PROGRESS
-    2. Determine if this is first attempt or retry
-    3. Fetch issue details and requirements
-    4. Load relevant memory and context
-    5. Include QA feedback if retry
-    6. Launch Developer Agent
-    7. Wait for completion
-    8. Parse and validate output
-    9. Update state with results
-    '''
+logger = logging.getLogger(__name__)
 
-    # -------------------------------------------------------------------------
-    # STEP 1: Update Issue Status
-    # -------------------------------------------------------------------------
-    '''
-    Update GitHub issue:
-    - Add label: IN_PROGRESS
-    - Remove labels: QA_FAILED, READY
-    - Add comment: "Developer Agent starting work (iteration X/Y)"
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 2: Determine Iteration Context
-    # -------------------------------------------------------------------------
-    '''
-    Check state.iteration_count:
-    - If 0: This is the first attempt
-    - If > 0: This is a retry after QA failure
-
-    For retries:
-    - Load previous QA feedback from state.metadata.qa_feedback
-    - Include in agent context
-    - Log iteration number
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 3: Fetch Issue Details
-    # -------------------------------------------------------------------------
-    '''
-    Get from GitHub:
-    - Issue title and body
-    - Acceptance criteria
-    - Implementation notes (if any)
-    - Related issues/dependencies
-
-    Parse issue body to extract structured information.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 4: Load Context
-    # -------------------------------------------------------------------------
-    '''
-    Load relevant files:
-
-    Memory:
-    - PROJECT.md: Project rules
-    - CONVENTIONS.md: Coding standards
-    - Feature memory file (if subtask)
-
-    Codebase:
-    - Related existing code
-    - Test files
-    - Configuration files
-
-    The context helps the agent understand:
-    - Where to make changes
-    - What patterns to follow
-    - What already exists
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 5: Prepare Agent Input
-    # -------------------------------------------------------------------------
-    '''
-    Create input package for Developer Agent:
-    {
-        "issue_number": 123,
-        "iteration": 1,
-        "task": {
-            "title": "...",
-            "description": "...",
-            "acceptance_criteria": [...],
-            "implementation_notes": "..."
-        },
-        "context": {
-            "project_rules": "...",
-            "conventions": "...",
-            "related_code": {...}
-        },
-        "feedback": {  // Only on retry
-            "qa_result": "FAIL",
-            "issues_found": [...],
-            "suggestions": [...]
-        },
-        "config": {
-            "create_branch": true,
-            "branch_prefix": "agent/",
-            "run_linter": true
-        }
-    }
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 6: Launch Developer Agent
-    # -------------------------------------------------------------------------
-    '''
-    Start container with:
-    - AGENT_TYPE=developer
-    - ISSUE_NUMBER={issue_number}
-    - ITERATION={iteration_count}
-    - MAX_ITERATIONS={max_iterations}
-
-    Volumes:
-    - /memory: Project memory (read)
-    - /repo: Code repository (read/write)
-    - /output: Agent output (write)
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 7: Wait for Completion
-    # -------------------------------------------------------------------------
-    '''
-    Monitor container:
-    - Poll for completion
-    - Capture stdout/stderr
-    - Handle timeout (30 min default)
-
-    On timeout:
-    - Kill container
-    - Log error
-    - Don't retry (will go to QA which will fail)
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 8: Parse Agent Output
-    # -------------------------------------------------------------------------
-    '''
-    Expected output structure:
-    {
-        "status": "success",
-        "modified_files": [
-            {"path": "src/feature.py", "action": "created"},
-            {"path": "tests/test_feature.py", "action": "created"}
-        ],
-        "commit_message": "Implement feature X for issue #123",
-        "branch_name": "agent/issue-123",
-        "implementation_notes": "...",
-        "tests_added": ["test_feature_basic", "test_feature_edge_case"]
-    }
-
-    Validate:
-    - Status is success
-    - Modified files list is present
-    - Files actually exist in repo
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 9: Update State
-    # -------------------------------------------------------------------------
-    '''
-    Update state with:
-    - last_agent_output: Agent output
-    - metadata.modified_files: List of paths
-    - metadata.branch_name: Branch name (if created)
-    - metadata.commit_sha: Commit hash (if committed)
-    - history: Add development record
-
-    State transitions to QA node next.
-    '''
-
-    pass  # Implementation placeholder
-'''
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-'''
-def extract_acceptance_criteria(issue_body: str) -> list[str]:
-    '''
-    Extract acceptance criteria from issue body.
-
-    Looks for sections like:
-    ## Acceptance Criteria
-    - [ ] Criterion 1
-    - [ ] Criterion 2
-
-    Returns list of criteria strings.
-    '''
-    pass
-
-
-def prepare_related_code_context(
-    repo_path: str,
-    issue_body: str,
-    memory: dict
-) -> dict:
-    '''
-    Identify and load related code for context.
-
-    Uses:
-    - Mentions in issue body
-    - Feature memory references
-    - Import analysis
-
-    Returns dict of file_path -> content.
-    '''
-    pass
-
-
-def validate_developer_output(
-    output: dict,
-    repo_path: str
-) -> tuple[bool, str]:
-    '''
-    Validate Developer Agent output.
-
-    Checks:
-    - Required fields present
-    - Modified files exist
-    - No obvious errors
-
-    Returns (is_valid, error_message).
-    '''
-    pass
-'''
 
 # =============================================================================
 # NODE CONFIGURATION
 # =============================================================================
-'''
-DEVELOPMENT_NODE_CONFIG = {
+
+DEVELOPMENT_CONFIG = {
     "agent_type": "developer",
-    "timeout_seconds": 1800,  # 30 minutes
-    "retry_on_timeout": False,
-    "github_labels": {
-        "add": ["IN_PROGRESS"],
-        "remove": ["QA_FAILED", "READY"]
-    },
-    "comment_template": "🤖 **[AI Agent]** Developer Agent starting work (iteration {iteration}/{max_iterations})"
+    "timeout_seconds": 1800,
+    "branch_prefix": "agent/",
+    "run_linter": True,
 }
-'''
-"""
+
 
 # =============================================================================
-# IMPLEMENTATION NOTES
+# NODE IMPLEMENTATION
 # =============================================================================
-"""
-Implementation Notes:
 
-1. ITERATION HANDLING
-   The development node handles both first attempts and retries:
-   - First attempt: No prior context, fresh implementation
-   - Retry: Includes QA feedback to guide fixes
 
-   The iteration count is NOT incremented here (done in qa_failed_node).
+async def development_node(
+    state: Dict[str, Any],
+    ctx: NodeContext,
+) -> Dict[str, Any]:
+    """
+    Execute development for a task issue.
 
-2. GIT WORKFLOW
-   The Developer Agent can:
-   - Create a new branch (agent/{issue-number})
-   - Make commits on that branch
-   - NOT push to remote (orchestrator handles this)
+    Launches the Developer Agent to write code. On retries,
+    includes QA feedback from the previous iteration.
 
-   Branch/commit handling ensures:
-   - Clean separation of changes
-   - Easy rollback if needed
-   - Clear audit trail
+    Args:
+        state: Current workflow state
+        ctx: Node execution context
 
-3. CONTEXT QUALITY
-   The quality of agent output depends on context quality.
-   Ensure:
-   - Relevant code is included
-   - Memory files are up to date
-   - Previous feedback is clearly formatted
+    Returns:
+        Updated state with agent output and modified files
+    """
+    issue_number = state["issue_number"]
+    iteration = state.get("iteration_count", 0)
+    logger.info(f"Development node: issue #{issue_number} (iteration {iteration})")
 
-4. TIMEOUT HANDLING
-   Development may take time for complex tasks.
-   On timeout:
-   - Container is killed
-   - Partial work may be lost
-   - Consider increasing timeout for complex issues
-"""
+    state["issue_state"] = IssueState.DEVELOPMENT.value
+    state["current_agent"] = AgentType.DEVELOPER.value
+
+    try:
+        # Update GitHub
+        await update_labels(
+            ctx, issue_number,
+            add=["DEVELOPMENT", "IN_PROGRESS"],
+            remove=["TRIAGE", "READY", "QA_FAILED"],
+        )
+
+        # Post start comment
+        await ctx.issue_manager.post_agent_start(
+            issue_number, "developer", iteration=iteration + 1
+        )
+
+        # Load project context
+        project_context = load_project_context(ctx.memory_path)
+
+        # Extract acceptance criteria
+        criteria = extract_acceptance_criteria(state.get("issue_body", ""))
+
+        # Prepare agent context
+        agent_context = {
+            "title": state.get("issue_title", ""),
+            "body": state.get("issue_body", ""),
+            "labels": state.get("issue_labels", []),
+            "acceptance_criteria": criteria,
+            "iteration": iteration,
+            "project_context": project_context,
+            "config": {
+                "create_branch": True,
+                "branch_prefix": DEVELOPMENT_CONFIG["branch_prefix"],
+                "run_linter": DEVELOPMENT_CONFIG["run_linter"],
+            },
+        }
+
+        # Add QA feedback if this is a retry
+        if iteration > 0 and state.get("last_agent_output"):
+            qa_output = state["last_agent_output"]
+            agent_context["qa_feedback"] = {
+                "result": qa_output.get("qa_result", "FAIL"),
+                "feedback": qa_output.get("feedback", ""),
+                "issues_found": qa_output.get("issues_found", []),
+                "suggested_fixes": qa_output.get("suggested_fixes", []),
+            }
+
+        # Also check for QA feedback in GitHub comments
+        qa_feedback = await ctx.issue_manager.get_qa_feedback(issue_number)
+        if qa_feedback:
+            agent_context["qa_feedback_comment"] = qa_feedback
+
+        # Launch developer agent
+        timeout = DEVELOPMENT_CONFIG["timeout_seconds"]
+        result = await launch_agent_and_wait(
+            ctx, AgentType.DEVELOPER, issue_number, agent_context, timeout
+        )
+
+        state["last_agent_output"] = result.output
+        state["current_agent"] = None
+
+        # Extract results
+        if result.success and result.output:
+            metadata = state.get("metadata", {})
+            metadata["modified_files"] = result.output.get("modified_files", [])
+            metadata["branch_name"] = result.output.get("branch_name", "")
+            metadata["commit_sha"] = result.output.get("commit_sha", "")
+            state["metadata"] = metadata
+
+        # Post completion comment
+        await ctx.issue_manager.post_agent_complete(
+            issue_number, "developer",
+            {
+                "success": result.success,
+                "summary": result.output.get("implementation_notes", "")
+                           if result.output else "No output",
+                "duration": result.output.get("duration", "unknown")
+                           if result.output else "unknown",
+            }
+        )
+
+        add_history_entry(state, "development", "development_complete", {
+            "success": result.success,
+            "iteration": iteration,
+            "files_modified": len(result.output.get("modified_files", []))
+                             if result.output else 0,
+        })
+
+    except Exception as e:
+        logger.error(f"Development failed for issue #{issue_number}: {e}")
+        state["error_message"] = f"Development failed: {e}"
+        state["current_agent"] = None
+
+    return state
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def validate_developer_output(
+    output: Dict[str, Any],
+) -> Tuple[bool, str]:
+    """Validate Developer Agent output structure."""
+    if not output:
+        return False, "Empty output"
+
+    if output.get("status") != "success":
+        return False, f"Status: {output.get('status', 'unknown')}"
+
+    modified = output.get("modified_files", [])
+    if not modified:
+        return False, "No modified files reported"
+
+    return True, ""
+
+
+__all__ = [
+    "development_node",
+    "validate_developer_output",
+    "DEVELOPMENT_CONFIG",
+]

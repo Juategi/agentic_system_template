@@ -4,357 +4,232 @@
 """
 Planning Node Implementation
 
-This node handles the decomposition of feature issues into smaller tasks.
-It launches the Planner Agent to analyze a feature and create sub-issues.
+Decomposes feature issues into smaller tasks by launching
+the Planner Agent. Creates sub-issues in GitHub.
 
 Workflow Position:
-    TRIAGE ──(is_feature)──▶ PLANNING ──▶ AWAIT_SUBTASKS
-
-Responsibilities:
-    1. Prepare context for Planner Agent
-    2. Launch Planner Agent container
-    3. Wait for agent completion
-    4. Process created sub-issues
-    5. Create feature memory file
-    6. Update workflow state
-
-Input State Requirements:
-    - issue_number: The feature issue to decompose
-    - issue_type: Must be "feature"
-
-Output State Changes:
-    - child_issues: List of created sub-issue numbers
-    - last_agent_output: Planner agent results
-    - metadata.feature_memory_file: Path to created memory file
-
-Error Handling:
-    - Agent launch failure → BLOCKED
-    - Agent timeout → BLOCKED
-    - No sub-issues created → BLOCKED
+    TRIAGE --(is_feature)--> PLANNING --> AWAIT_SUBTASKS
 """
 
-# =============================================================================
-# NODE IMPLEMENTATION
-# =============================================================================
-"""
-async def planning_node(state: WorkflowState, context: NodeContext) -> WorkflowState:
-    '''
-    Execute the planning node logic.
+from __future__ import annotations
 
-    Args:
-        state: Current workflow state
-        context: Node execution context containing:
-            - github_client: GitHub API client
-            - agent_launcher: Agent container launcher
-            - state_manager: State persistence
-            - config: Node configuration
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
 
-    Returns:
-        Updated workflow state
+from orchestrator.engine.state_manager import IssueState
+from orchestrator.scheduler.agent_launcher import AgentType
+from orchestrator.nodes._base import (
+    NodeContext,
+    launch_agent_and_wait,
+    update_labels,
+    post_comment,
+    add_history_entry,
+    load_project_context,
+    NODE_CONFIGS,
+)
 
-    Execution Flow:
-    1. Validate state is appropriate for planning
-    2. Fetch feature issue details
-    3. Load project context files
-    4. Prepare Planner Agent input
-    5. Launch Planner Agent container
-    6. Wait for completion with timeout
-    7. Parse agent output
-    8. Verify sub-issues were created
-    9. Create feature memory file
-    10. Update and return state
-    '''
+logger = logging.getLogger(__name__)
 
-    # -------------------------------------------------------------------------
-    # STEP 1: Validate State
-    # -------------------------------------------------------------------------
-    '''
-    Verify:
-    - issue_number is set
-    - issue_type is "feature"
-    - Issue is not already decomposed
-
-    If validation fails, set error and transition to blocked.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 2: Fetch Feature Issue
-    # -------------------------------------------------------------------------
-    '''
-    Call GitHub API to get:
-    - Issue title and body
-    - Labels
-    - Any linked issues
-
-    Extract:
-    - Feature description
-    - Acceptance criteria
-    - Technical constraints
-    - Dependencies
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 3: Load Project Context
-    # -------------------------------------------------------------------------
-    '''
-    Read memory files:
-    - PROJECT.md: Overall project rules
-    - ARCHITECTURE.md: Technical architecture
-    - CONSTRAINTS.md: Technical constraints
-    - CONVENTIONS.md: Coding standards
-
-    These provide context for the Planner to understand:
-    - How to structure tasks
-    - What technical boundaries exist
-    - Project-specific requirements
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 4: Prepare Agent Input
-    # -------------------------------------------------------------------------
-    '''
-    Create input package for Planner Agent:
-    {
-        "issue_number": 123,
-        "feature": {
-            "title": "...",
-            "description": "...",
-            "acceptance_criteria": [...],
-            "dependencies": [...]
-        },
-        "project_context": {
-            "architecture": "...",
-            "constraints": "...",
-            "conventions": "..."
-        },
-        "config": {
-            "max_sub_issues": 10,
-            "min_task_granularity_hours": 2,
-            "max_task_granularity_hours": 8
-        }
-    }
-
-    Write to agent input volume.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 5: Launch Planner Agent
-    # -------------------------------------------------------------------------
-    '''
-    Use agent_launcher to start container:
-    - Image: ai-agent:latest
-    - Environment:
-        - AGENT_TYPE=planner
-        - PROJECT_ID=...
-        - ISSUE_NUMBER=123
-    - Volumes:
-        - /memory: Project memory
-        - /repo: Code repository
-        - /input: Agent input
-        - /output: Agent output
-
-    Get container ID for monitoring.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 6: Wait for Agent Completion
-    # -------------------------------------------------------------------------
-    '''
-    Monitor container until:
-    - Exit code 0: Success
-    - Exit code != 0: Failure
-    - Timeout: Force stop and fail
-
-    Collect container logs for debugging.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 7: Parse Agent Output
-    # -------------------------------------------------------------------------
-    '''
-    Read agent output file containing:
-    {
-        "status": "success",
-        "created_issues": [124, 125, 126],
-        "feature_memory_file": "features/feature-123.md",
-        "decomposition": {
-            "summary": "...",
-            "tasks": [
-                {"issue": 124, "title": "...", "estimate_hours": 4},
-                ...
-            ],
-            "dependencies": [
-                {"from": 125, "to": 124, "type": "blocks"}
-            ]
-        }
-    }
-
-    Validate output structure.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 8: Verify Sub-issues Created
-    # -------------------------------------------------------------------------
-    '''
-    For each created issue:
-    - Verify exists in GitHub
-    - Verify has correct labels
-    - Verify linked to parent feature
-
-    If no sub-issues or verification fails, mark as error.
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 9: Create Feature Memory File
-    # -------------------------------------------------------------------------
-    '''
-    Ensure feature memory file exists at:
-    memory/features/feature-{issue_number}.md
-
-    File should contain:
-    - Feature metadata
-    - Acceptance criteria
-    - Sub-task list
-    - Dependency graph
-    - (Will be updated as sub-tasks complete)
-    '''
-
-    # -------------------------------------------------------------------------
-    # STEP 10: Update and Return State
-    # -------------------------------------------------------------------------
-    '''
-    Update state with:
-    - child_issues: [124, 125, 126]
-    - last_agent_output: Agent output dict
-    - metadata.feature_memory_file: Path to memory file
-    - history: Add planning transition record
-
-    Return updated state for workflow to continue.
-    '''
-
-    pass  # Implementation placeholder
-'''
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-'''
-def validate_planner_output(output: dict) -> tuple[bool, str]:
-    '''
-    Validate Planner Agent output structure.
-
-    Args:
-        output: Agent output dictionary
-
-    Returns:
-        (is_valid, error_message)
-
-    Validates:
-    - status field exists and is "success"
-    - created_issues is non-empty list
-    - Each issue has required fields
-    '''
-    pass
-
-
-def create_feature_memory_file(
-    issue_number: int,
-    feature_data: dict,
-    subtasks: list,
-    memory_path: str
-) -> str:
-    '''
-    Create the feature memory Markdown file.
-
-    Args:
-        issue_number: Parent feature issue number
-        feature_data: Feature title, description, criteria
-        subtasks: List of created sub-task issues
-        memory_path: Path to memory directory
-
-    Returns:
-        Path to created memory file
-
-    Template:
-        # Feature: {title}
-
-        ## Metadata
-        - Issue: #{issue_number}
-        - Status: PLANNING_COMPLETE
-        - Created: {timestamp}
-        - Subtasks: {count}
-
-        ## Description
-        {description}
-
-        ## Acceptance Criteria
-        {criteria}
-
-        ## Subtasks
-        | Issue | Title | Status |
-        |-------|-------|--------|
-        | #124  | ...   | READY  |
-
-        ## Dependencies
-        {dependency_graph}
-
-        ## History
-        | Date | Event | Details |
-        |------|-------|---------|
-    '''
-    pass
-'''
 
 # =============================================================================
 # NODE CONFIGURATION
 # =============================================================================
-'''
-PLANNING_NODE_CONFIG = {
+
+PLANNING_CONFIG = {
     "agent_type": "planner",
-    "timeout_seconds": 600,  # 10 minutes max for planning
-    "retry_on_failure": False,  # Don't retry planning automatically
-    "required_context_files": [
-        "PROJECT.md",
-        "ARCHITECTURE.md"
-    ],
-    "optional_context_files": [
-        "CONSTRAINTS.md",
-        "CONVENTIONS.md"
-    ]
+    "timeout_seconds": 600,
+    "max_subtasks": 10,
+    "min_task_granularity_hours": 2,
+    "max_task_granularity_hours": 8,
+    "required_context_files": ["PROJECT.md", "ARCHITECTURE.md"],
 }
-'''
-"""
+
 
 # =============================================================================
-# IMPLEMENTATION NOTES
+# NODE IMPLEMENTATION
 # =============================================================================
-"""
-Implementation Notes:
 
-1. PLANNER AGENT CONTRACT
-   The Planner Agent is expected to:
-   - Read feature issue and context
-   - Analyze and decompose feature
-   - Create GitHub issues for each subtask
-   - Link subtasks to parent feature
-   - Create feature memory file
-   - Output structured results
 
-2. ERROR HANDLING
-   - Agent launch failure: Log error, set state to BLOCKED
-   - Agent timeout: Kill container, log, BLOCKED
-   - Invalid output: Log details, BLOCKED
-   - GitHub API errors: Retry with backoff, then BLOCKED
+async def planning_node(
+    state: Dict[str, Any],
+    ctx: NodeContext,
+) -> Dict[str, Any]:
+    """
+    Decompose a feature issue into subtasks.
 
-3. IDEMPOTENCY
-   If this node runs twice for same issue:
-   - Check if subtasks already exist
-   - Don't create duplicates
-   - Update state to reflect current situation
+    Launches the Planner Agent to analyze the feature and
+    create sub-issues in GitHub.
 
-4. MONITORING
-   Emit metrics:
-   - planning_duration_seconds
-   - subtasks_created_count
-   - planning_success/failure counter
-"""
+    Args:
+        state: Current workflow state
+        ctx: Node execution context
+
+    Returns:
+        Updated state with child_issues populated
+    """
+    issue_number = state["issue_number"]
+    logger.info(f"Planning node: issue #{issue_number}")
+
+    state["issue_state"] = IssueState.PLANNING.value
+    state["current_agent"] = AgentType.PLANNER.value
+
+    try:
+        # Update GitHub
+        await update_labels(
+            ctx, issue_number,
+            add=["PLANNING", "IN_PROGRESS"],
+            remove=["TRIAGE", "READY"],
+        )
+
+        await post_comment(
+            ctx, issue_number,
+            "## Planning Started\n\nPlanner Agent is analyzing this feature for decomposition."
+        )
+
+        # Load project context
+        project_context = load_project_context(ctx.memory_path)
+
+        # Prepare agent input
+        agent_context = {
+            "title": state.get("issue_title", ""),
+            "body": state.get("issue_body", ""),
+            "labels": state.get("issue_labels", []),
+            "project_context": project_context,
+            "config": {
+                "max_subtasks": PLANNING_CONFIG["max_subtasks"],
+                "min_task_hours": PLANNING_CONFIG["min_task_granularity_hours"],
+                "max_task_hours": PLANNING_CONFIG["max_task_granularity_hours"],
+            },
+        }
+
+        # Launch planner agent
+        timeout = PLANNING_CONFIG["timeout_seconds"]
+        result = await launch_agent_and_wait(
+            ctx, AgentType.PLANNER, issue_number, agent_context, timeout
+        )
+
+        state["last_agent_output"] = result.output
+        state["current_agent"] = None
+
+        # Process subtasks
+        child_issues = []
+        if result.success and result.output:
+            subtasks = result.output.get("subtasks", [])
+
+            for subtask in subtasks:
+                child = await ctx.issue_manager.create_subtask(
+                    parent_number=issue_number,
+                    title=subtask.get("title", "Untitled subtask"),
+                    body=subtask.get("body", ""),
+                    labels=subtask.get("labels"),
+                )
+                child_issues.append(child["number"])
+
+            state["child_issues"] = child_issues
+
+            # Create feature memory file
+            _create_feature_memory(
+                ctx.memory_path, issue_number, state, subtasks
+            )
+
+            # Post planning complete comment
+            await ctx.issue_manager.post_planning_complete(
+                issue_number,
+                [{"number": n, "title": s.get("title", "")}
+                 for n, s in zip(child_issues, subtasks)]
+            )
+
+        if not child_issues:
+            state["error_message"] = "Planning produced no subtasks"
+            logger.warning(f"No subtasks created for issue #{issue_number}")
+
+        add_history_entry(state, "planning", "planning_complete", {
+            "child_issues": child_issues,
+            "subtask_count": len(child_issues),
+        })
+
+    except Exception as e:
+        logger.error(f"Planning failed for issue #{issue_number}: {e}")
+        state["error_message"] = f"Planning failed: {e}"
+        state["current_agent"] = None
+
+    return state
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def _create_feature_memory(
+    memory_path: str,
+    issue_number: int,
+    state: Dict[str, Any],
+    subtasks: List[Dict[str, Any]],
+) -> Optional[str]:
+    """Create the feature memory markdown file."""
+    try:
+        features_dir = Path(memory_path) / "features"
+        features_dir.mkdir(parents=True, exist_ok=True)
+
+        filepath = features_dir / f"feature-{issue_number}.md"
+
+        subtask_rows = "\n".join(
+            f"| #{s.get('number', '?')} | {s.get('title', '')} | READY |"
+            for s in subtasks
+        )
+
+        content = (
+            f"# Feature: {state.get('issue_title', 'Untitled')}\n\n"
+            f"## Metadata\n"
+            f"- Issue: #{issue_number}\n"
+            f"- Status: PLANNING_COMPLETE\n"
+            f"- Created: {datetime.utcnow().isoformat()}\n"
+            f"- Subtasks: {len(subtasks)}\n\n"
+            f"## Description\n"
+            f"{state.get('issue_body', 'No description')}\n\n"
+            f"## Subtasks\n"
+            f"| Issue | Title | Status |\n"
+            f"|-------|-------|--------|\n"
+            f"{subtask_rows}\n\n"
+            f"## History\n"
+            f"| Date | Event | Details |\n"
+            f"|------|-------|---------|\n"
+            f"| {datetime.utcnow().isoformat()} | Planning Complete | {len(subtasks)} subtasks created |\n"
+        )
+
+        filepath.write_text(content, encoding="utf-8")
+        logger.info(f"Created feature memory: {filepath}")
+        return str(filepath)
+
+    except Exception as e:
+        logger.warning(f"Failed to create feature memory: {e}")
+        return None
+
+
+def validate_planner_output(output: Dict[str, Any]) -> Tuple[bool, str]:
+    """Validate Planner Agent output structure."""
+    if not output:
+        return False, "Empty output"
+
+    if output.get("status") != "success":
+        return False, f"Status: {output.get('status', 'unknown')}"
+
+    subtasks = output.get("subtasks", [])
+    if not subtasks:
+        return False, "No subtasks in output"
+
+    for i, task in enumerate(subtasks):
+        if not task.get("title"):
+            return False, f"Subtask {i} missing title"
+
+    return True, ""
+
+
+__all__ = [
+    "planning_node",
+    "validate_planner_output",
+    "PLANNING_CONFIG",
+]
