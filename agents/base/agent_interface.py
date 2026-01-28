@@ -155,6 +155,14 @@ class AgentContext:
     # Configuration
     config: Dict[str, Any] = field(default_factory=dict)
 
+    # Images from issue (mockups, screenshots, diagrams)
+    images: List[Any] = field(default_factory=list)
+
+    @property
+    def has_images(self) -> bool:
+        """Check if images are available for this context."""
+        return len(self.images) > 0
+
     @property
     def issue_title(self) -> str:
         """Get issue title."""

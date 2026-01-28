@@ -624,9 +624,10 @@ Return ONLY a list of file paths, one per line. No explanations."""
 
         response = self.llm.complete(
             prompt=prompt,
-            system=self._get_planning_system_prompt(),
+            system=self._get_planning_system_prompt(has_images=context.has_images),
             max_tokens=2000,
-            temperature=0.3
+            temperature=0.3,
+            images=context.images if context.has_images else None,
         )
 
         # Parse JSON response
@@ -648,9 +649,9 @@ Return ONLY a list of file paths, one per line. No explanations."""
             risks=plan_data.get("risks", [])
         )
 
-    def _get_planning_system_prompt(self) -> str:
+    def _get_planning_system_prompt(self, has_images: bool = False) -> str:
         """Get system prompt for planning."""
-        return """You are a senior software developer creating an implementation plan.
+        base = """You are a senior software developer creating an implementation plan.
 
 Your plan should be:
 1. Specific and actionable
@@ -672,6 +673,15 @@ Return your plan as JSON with this structure:
   "tests": ["Description of tests to add"],
   "risks": ["Potential risks or challenges"]
 }"""
+        if has_images:
+            base += """
+
+IMPORTANT: Visual mockups or screenshots have been attached to this request.
+Carefully analyze these images for UI elements, layouts, component structure,
+spacing, colors, and any visual details that should be reflected in the
+implementation plan."""
+
+        return base
 
     def _format_planning_prompt(
         self,
@@ -698,6 +708,14 @@ This is a retry. Address these issues:
 - Suggestions: {qa_feedback.get('suggestions', [])}
 """
 
+        image_section = ""
+        if context.has_images:
+            image_section = f"""
+## Visual References
+{len(context.images)} mockup/screenshot image(s) are attached to this message.
+Analyze the visual references to inform your implementation plan.
+"""
+
         return f"""## Task to Implement
 
 **Title:** {task_info.title}
@@ -710,7 +728,7 @@ This is a retry. Address these issues:
 
 **Implementation Hints:**
 {chr(10).join(f'- {h}' for h in task_info.implementation_hints)}
-{qa_section}
+{qa_section}{image_section}
 ## Project Conventions
 {conventions[:2000]}
 

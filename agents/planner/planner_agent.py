@@ -164,7 +164,10 @@ class PlannerAgent(AgentInterface):
 
             # Step 3: Get decomposition from LLM
             self.logger.info("Getting decomposition from LLM...")
-            decomposition = self._get_decomposition(prompt)
+            decomposition = self._get_decomposition(
+                prompt,
+                images=context.images if context.has_images else None,
+            )
             self.track_llm_call(
                 tokens_input=decomposition.get("_tokens_input", 0),
                 tokens_output=decomposition.get("_tokens_output", 0)
@@ -425,18 +428,26 @@ Create {{target_tasks}} tasks, each {{min_hours}}-{{max_hours}} hours.
     # LLM INTERACTION
     # =========================================================================
 
-    def _get_decomposition(self, prompt: str) -> Dict[str, Any]:
+    def _get_decomposition(self, prompt: str, images=None) -> Dict[str, Any]:
         """Get decomposition from LLM."""
         system_prompt = """You are an expert software architect specializing in breaking down
 complex features into manageable development tasks. You always respond with valid JSON
 that follows the requested schema exactly. Your decompositions are practical, well-structured,
 and enable parallel development where possible."""
 
+        if images:
+            system_prompt += """
+
+Visual mockups or screenshots have been provided with this feature request.
+Analyze them carefully to inform your task decomposition. Consider UI components,
+layouts, visual elements, and design details shown in the images."""
+
         response = self.llm.complete(
             prompt=prompt,
             system=system_prompt,
             max_tokens=4096,
-            temperature=0.3  # Lower temperature for more consistent output
+            temperature=0.3,  # Lower temperature for more consistent output
+            images=images,
         )
 
         # Parse JSON from response

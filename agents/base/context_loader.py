@@ -147,7 +147,10 @@ class ContextLoader:
         # 6. Load repository info
         repository = self._load_repository_info()
 
-        # 7. Assemble context
+        # 7. Extract images from issue body (mockups, screenshots)
+        images = self._extract_images(issue_data.get("body", ""))
+
+        # 8. Assemble context
         return AgentContext(
             issue_number=issue_number,
             project_id=project_id,
@@ -157,7 +160,8 @@ class ContextLoader:
             memory=memory,
             repository=repository,
             input_data=input_data,
-            config=self._load_agent_config(env.get("AGENT_TYPE", "developer"))
+            config=self._load_agent_config(env.get("AGENT_TYPE", "developer")),
+            images=images,
         )
 
     def _load_environment(self) -> Dict[str, str]:
@@ -338,6 +342,37 @@ class ContextLoader:
         if self._github_helper is None:
             self._github_helper = GitHubHelper()
         return self._github_helper
+
+    def _extract_images(self, issue_body: str) -> List:
+        """
+        Extract and download images from the issue body.
+
+        Uses the authenticated GitHub session so private repo
+        images can be fetched.  Failures are logged and skipped.
+
+        Args:
+            issue_body: Markdown body of the issue.
+
+        Returns:
+            List of ``ImageContent`` objects (may be empty).
+        """
+        if not issue_body:
+            return []
+
+        try:
+            from .image_utils import process_issue_images
+
+            # Reuse the GitHub-authenticated session for private repo images
+            github = self._get_github_helper()
+            return process_issue_images(
+                markdown_text=issue_body,
+                session=github.session,
+                max_images=5,
+                max_size_bytes=5_000_000,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to extract images from issue body: {e}")
+            return []
 
 
 # =============================================================================

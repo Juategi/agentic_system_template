@@ -86,8 +86,18 @@ from .llm_client import (
     LLMClient,
     LLMResponse,
     LLMMessage,
+    TextBlock,
+    ImageBlock,
     create_llm_client,
+    create_multimodal_message,
     estimate_tokens,
+)
+
+# Image utilities
+from .image_utils import (
+    ImageContent,
+    extract_image_urls,
+    process_issue_images,
 )
 
 
@@ -120,8 +130,16 @@ __all__ = [
     "LLMClient",
     "LLMResponse",
     "LLMMessage",
+    "TextBlock",
+    "ImageBlock",
     "create_llm_client",
+    "create_multimodal_message",
     "estimate_tokens",
+
+    # Image utilities
+    "ImageContent",
+    "extract_image_urls",
+    "process_issue_images",
 ]
 
 

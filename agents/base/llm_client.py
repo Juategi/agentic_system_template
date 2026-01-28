@@ -25,7 +25,7 @@ import os
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from dataclasses import dataclass, field
 
 
@@ -63,20 +63,73 @@ class LLMResponse:
 
 
 @dataclass
+class TextBlock:
+    """A text content block within a multimodal message."""
+    text: str
+    type: str = "text"
+
+
+@dataclass
+class ImageBlock:
+    """An image content block within a multimodal message."""
+    media_type: str  # e.g. "image/png"
+    base64_data: str  # base64-encoded image bytes
+    alt_text: str = ""
+    type: str = "image"
+
+
+@dataclass
 class LLMMessage:
     """
     A message in a conversation.
 
+    Supports both plain text and multimodal content (text + images).
+    When ``content`` is a string, the message behaves exactly as before.
+    When ``content`` is a list of TextBlock/ImageBlock, it represents
+    multimodal content.
+
     Attributes:
         role: Message role (system, user, assistant)
-        content: Message content
+        content: Plain text string or list of content blocks
     """
     role: str
-    content: str
+    content: Union[str, List[Union[TextBlock, ImageBlock]]]
 
-    def to_dict(self) -> Dict[str, str]:
-        """Convert to dictionary."""
-        return {"role": self.role, "content": self.content}
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for provider APIs."""
+        if isinstance(self.content, str):
+            return {"role": self.role, "content": self.content}
+        return {"role": self.role, "content": self._serialize_blocks()}
+
+    def _serialize_blocks(self) -> List[Dict[str, Any]]:
+        """Serialize content blocks to a provider-agnostic format."""
+        blocks = []
+        for block in self.content:
+            if isinstance(block, TextBlock):
+                blocks.append({"type": "text", "text": block.text})
+            elif isinstance(block, ImageBlock):
+                blocks.append({
+                    "type": "image",
+                    "media_type": block.media_type,
+                    "data": block.base64_data,
+                })
+        return blocks
+
+    @property
+    def is_multimodal(self) -> bool:
+        """Check if this message contains images."""
+        if isinstance(self.content, str):
+            return False
+        return any(isinstance(b, ImageBlock) for b in self.content)
+
+    @property
+    def text_content(self) -> str:
+        """Extract only the text portions (for logging, token estimation)."""
+        if isinstance(self.content, str):
+            return self.content
+        return "\n".join(
+            b.text for b in self.content if isinstance(b, TextBlock)
+        )
 
 
 # =============================================================================
@@ -160,6 +213,27 @@ class AnthropicProvider(BaseLLMProvider):
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
 
+    @staticmethod
+    def _format_message(msg: LLMMessage) -> Dict[str, Any]:
+        """Format an LLMMessage for the Anthropic API."""
+        if isinstance(msg.content, str):
+            return {"role": msg.role, "content": msg.content}
+
+        content_blocks: List[Dict[str, Any]] = []
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                content_blocks.append({"type": "text", "text": block.text})
+            elif isinstance(block, ImageBlock):
+                content_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": block.media_type,
+                        "data": block.base64_data,
+                    }
+                })
+        return {"role": msg.role, "content": content_blocks}
+
     def complete(
         self,
         messages: List[LLMMessage],
@@ -174,9 +248,9 @@ class AnthropicProvider(BaseLLMProvider):
 
         for msg in messages:
             if msg.role == "system":
-                system = msg.content
+                system = msg.text_content if msg.is_multimodal else msg.content
             else:
-                conversation.append(msg.to_dict())
+                conversation.append(self._format_message(msg))
 
         # Make API call
         create_kwargs = {
@@ -251,6 +325,24 @@ class OpenAIProvider(BaseLLMProvider):
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
 
+    @staticmethod
+    def _format_message(msg: LLMMessage) -> Dict[str, Any]:
+        """Format an LLMMessage for the OpenAI API."""
+        if isinstance(msg.content, str):
+            return {"role": msg.role, "content": msg.content}
+
+        content_blocks: List[Dict[str, Any]] = []
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                content_blocks.append({"type": "text", "text": block.text})
+            elif isinstance(block, ImageBlock):
+                data_url = f"data:{block.media_type};base64,{block.base64_data}"
+                content_blocks.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url},
+                })
+        return {"role": msg.role, "content": content_blocks}
+
     def complete(
         self,
         messages: List[LLMMessage],
@@ -260,7 +352,7 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> LLMResponse:
         """Generate completion using GPT."""
         # Convert messages to OpenAI format
-        openai_messages = [msg.to_dict() for msg in messages]
+        openai_messages = [self._format_message(msg) for msg in messages]
 
         # Make API call
         response = self.client.chat.completions.create(
@@ -363,10 +455,23 @@ class OllamaProvider(BaseLLMProvider):
         # Convert messages to Ollama chat format
         ollama_messages = []
         for msg in messages:
-            ollama_messages.append({
-                "role": msg.role,
-                "content": msg.content
-            })
+            ollama_msg: Dict[str, Any] = {"role": msg.role}
+
+            if isinstance(msg.content, str):
+                ollama_msg["content"] = msg.content
+            else:
+                # Multimodal: extract text and images separately
+                text_parts = [
+                    b.text for b in msg.content if isinstance(b, TextBlock)
+                ]
+                image_parts = [
+                    b.base64_data for b in msg.content if isinstance(b, ImageBlock)
+                ]
+                ollama_msg["content"] = "\n".join(text_parts)
+                if image_parts:
+                    ollama_msg["images"] = image_parts
+
+            ollama_messages.append(ollama_msg)
 
         # Prepare request payload
         payload = {
@@ -380,7 +485,7 @@ class OllamaProvider(BaseLLMProvider):
         }
 
         # Calculate input tokens estimate before request
-        input_text = " ".join(m.content for m in messages)
+        input_text = " ".join(m.text_content for m in messages)
         tokens_input_estimate = self._estimate_tokens(input_text)
 
         try:
@@ -535,6 +640,7 @@ class LLMClient:
         system: str = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        images: Optional[List[Any]] = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -545,6 +651,7 @@ class LLMClient:
             system: Optional system prompt
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
+            images: Optional list of ``ImageContent`` objects to include
             **kwargs: Provider-specific options
 
         Returns:
@@ -553,7 +660,7 @@ class LLMClient:
         messages = []
         if system:
             messages.append(LLMMessage("system", system))
-        messages.append(LLMMessage("user", prompt))
+        messages.append(create_multimodal_message("user", prompt, images))
 
         return self.chat(messages, max_tokens, temperature, **kwargs)
 
@@ -628,6 +735,45 @@ class LLMClient:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def create_multimodal_message(
+    role: str,
+    text: str,
+    images: Optional[List[Any]] = None,
+) -> LLMMessage:
+    """
+    Create an LLMMessage with text and optional images.
+
+    When *images* is ``None`` or empty, returns a plain text message
+    (fully backward-compatible).  Otherwise, returns a multimodal
+    message with image blocks followed by a text block.
+
+    Args:
+        role: Message role (``"user"``, ``"assistant"``).
+        text: Text content.
+        images: Optional list of ``ImageContent`` objects.
+
+    Returns:
+        An ``LLMMessage`` ready for provider consumption.
+    """
+    if not images:
+        return LLMMessage(role=role, content=text)
+
+    blocks: List[Union[TextBlock, ImageBlock]] = []
+
+    # Images first (common practice for vision models)
+    for img in images:
+        blocks.append(ImageBlock(
+            media_type=img.media_type,
+            base64_data=img.base64_data,
+            alt_text=getattr(img, "alt_text", ""),
+        ))
+
+    # Text after images
+    blocks.append(TextBlock(text=text))
+
+    return LLMMessage(role=role, content=blocks)
+
 
 def create_llm_client(
     provider: str = None,
