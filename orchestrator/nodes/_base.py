@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 from orchestrator.engine.state_manager import IssueState
-from orchestrator.scheduler.agent_launcher import AgentType, AgentResult
+from orchestrator.scheduler.agent_launcher import AgentType, AgentResult, ContainerStatus
 
 if TYPE_CHECKING:
     from orchestrator.github.client import GitHubClient
@@ -151,7 +151,7 @@ async def launch_agent_and_wait(
     except Exception as e:
         logger.error(f"Agent {agent_type.value} failed for issue #{issue_number}: {e}")
         return AgentResult(
-            success=False,
+            status=ContainerStatus.FAILED,
             output={"error": str(e)},
             exit_code=-1,
             logs=str(e),

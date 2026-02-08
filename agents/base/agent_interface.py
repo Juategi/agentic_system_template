@@ -24,6 +24,8 @@ import logging
 import os
 import traceback
 
+from monitoring import setup_logging as monitoring_setup_logging, AuditLogger
+
 
 # =============================================================================
 # ENUMS AND DATA STRUCTURES
@@ -248,21 +250,28 @@ class AgentInterface(ABC):
             "files_modified": 0
         }
 
+        # Audit logger for permanent agent execution trail
+        log_dir = os.environ.get("LOG_PATH", "./logs")
+        self.audit = AuditLogger(output_path=f"{log_dir}/audit.jsonl")
+
     def _setup_logging(self) -> logging.Logger:
-        """Set up agent-specific logger."""
+        """Set up agent-specific logger using the monitoring module."""
         log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-        logger = logging.getLogger(f"agent.{self.get_agent_type()}")
-        logger.setLevel(getattr(logging, log_level, logging.INFO))
+        log_fmt = os.environ.get("LOG_FORMAT", "json")
+        log_dir = os.environ.get("LOG_PATH", "./logs")
+        agent_type = self.get_agent_type()
 
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
+        # Use monitoring module: writes to logs/agent-{type}.log with rotation
+        monitoring_setup_logging(
+            level=log_level,
+            fmt=log_fmt,
+            log_file=f"{log_dir}/agent-{agent_type}.log",
+            mask_sensitive=True,
+            max_bytes=50 * 1024 * 1024,  # 50 MB per agent log
+            backup_count=3,
+        )
 
-        return logger
+        return logging.getLogger(f"agent.{agent_type}")
 
     @property
     def llm(self):
@@ -346,12 +355,30 @@ class AgentInterface(ABC):
             # Update GitHub (if applicable)
             self._update_github(context, result)
 
+            # Audit: log agent execution
+            duration = (datetime.utcnow() - self._start_time).total_seconds()
+            self.audit.log_agent_execution(
+                agent_type=self.get_agent_type(),
+                issue_number=context.issue_number,
+                result=result.status.value,
+                duration=duration,
+                output_summary=result.message,
+            )
+
             self.logger.info(f"Agent completed with status: {result.status.value}")
             return result
 
         except Exception as e:
             self.logger.error(f"Agent execution failed: {str(e)}")
             self.logger.error(traceback.format_exc())
+
+            # Audit: log error
+            duration = (datetime.utcnow() - self._start_time).total_seconds() if self._start_time else 0
+            self.audit.log_error(
+                component=f"agent.{self.get_agent_type()}",
+                error_type=type(e).__name__,
+                message=str(e),
+            )
 
             error_result = AgentResult.error(
                 f"Agent execution failed: {str(e)}",

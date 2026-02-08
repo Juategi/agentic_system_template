@@ -121,6 +121,7 @@ from orchestrator.scheduler.agent_launcher import (
     AgentLauncher,
     AgentType,
     AgentResult,
+    ContainerStatus,
     ContainerTimeoutError,
 )
 
@@ -516,7 +517,7 @@ class WorkflowEngine:
             return self._persisted_to_graph_state(existing)
 
         # Fetch issue details from GitHub
-        issue = await self.github_client.get_issue(issue_number)
+        issue = self.github_client.get_issue(issue_number)
 
         # Create new state
         now = datetime.utcnow().isoformat()
@@ -848,7 +849,7 @@ class WorkflowEngine:
 
                 for subtask in subtasks:
                     # Create child issue via GitHub client
-                    child_issue = await self.github_client.create_issue(
+                    child_issue = self.github_client.create_issue(
                         title=subtask.get("title", ""),
                         body=subtask.get("body", ""),
                         labels=["task", "READY"],
@@ -946,7 +947,7 @@ class WorkflowEngine:
 
             # Add QA feedback if this is a retry
             if state.get("iteration_count", 0) > 0:
-                qa_output = state.get("last_agent_output", {})
+                qa_output = state.get("last_agent_output") or {}
                 context["qa_feedback"] = qa_output.get("feedback", {})
 
             # Launch developer agent
@@ -1003,7 +1004,7 @@ class WorkflowEngine:
                 "title": state.get("issue_title", ""),
                 "body": state.get("issue_body", ""),
                 "modified_files": state.get("metadata", {}).get("modified_files", []),
-                "developer_output": state.get("last_agent_output", {}),
+                "developer_output": state.get("last_agent_output") or {},
             }
 
             # Launch QA agent
@@ -1017,7 +1018,7 @@ class WorkflowEngine:
             state["current_agent"] = None
 
             # Determine QA result
-            qa_passed = result.success and result.output.get("passed", False)
+            qa_passed = result.success and (result.output or {}).get("passed", False)
             state["qa_result"] = "PASS" if qa_passed else "FAIL"
             state["metadata"] = state.get("metadata", {})
             state["metadata"]["qa_result"] = state["qa_result"]
@@ -1061,10 +1062,10 @@ class WorkflowEngine:
         )
 
         # Add comment with QA feedback
-        qa_output = state.get("last_agent_output", {})
+        qa_output = state.get("last_agent_output") or {}
         feedback = qa_output.get("feedback", "No feedback provided")
 
-        await self.github_client.add_comment(
+        self.github_client.add_comment(
             issue_number,
             f"## QA Failed (Iteration {iteration}/{state.get('max_iterations', self.max_iterations)})\n\n"
             f"**Feedback:**\n{feedback}\n\n"
@@ -1106,7 +1107,7 @@ class WorkflowEngine:
                 "title": state.get("issue_title", ""),
                 "body": state.get("issue_body", ""),
                 "modified_files": state.get("metadata", {}).get("modified_files", []),
-                "qa_output": state.get("last_agent_output", {}),
+                "qa_output": state.get("last_agent_output") or {},
             }
 
             # Launch reviewer agent
@@ -1219,7 +1220,7 @@ class WorkflowEngine:
 
             # Add completion comment
             iterations = state.get("iteration_count", 0)
-            await self.github_client.add_comment(
+            self.github_client.add_comment(
                 issue_number,
                 f"## Issue Completed\n\n"
                 f"This issue has been successfully completed.\n\n"
@@ -1228,7 +1229,7 @@ class WorkflowEngine:
             )
 
             # Close the issue
-            await self.github_client.update_issue(issue_number, state="closed")
+            self.github_client.update_issue(issue_number, state="closed")
 
             # Record transition
             state = await self._record_transition(
@@ -1264,7 +1265,7 @@ class WorkflowEngine:
 
             # Add blocking comment
             error_msg = state.get("error_message", "Unknown reason")
-            await self.github_client.add_comment(
+            self.github_client.add_comment(
                 issue_number,
                 f"## Issue Blocked\n\n"
                 f"This issue requires human intervention.\n\n"
@@ -1384,7 +1385,7 @@ class WorkflowEngine:
         try:
             # Launch the container
             container_id = await self.agent_launcher.launch_agent(
-                agent_type=agent_type,
+                agent_type=agent_type.value,
                 issue_number=issue_number,
                 context=context,
             )
@@ -1400,7 +1401,7 @@ class WorkflowEngine:
         except ContainerTimeoutError:
             logger.error(f"Agent timeout for issue #{issue_number}")
             return AgentResult(
-                success=False,
+                status=ContainerStatus.TIMEOUT,
                 output={"error": "Agent timeout"},
                 exit_code=-1,
                 logs="",
@@ -1408,7 +1409,7 @@ class WorkflowEngine:
         except Exception as e:
             logger.error(f"Agent launch failed: {e}")
             return AgentResult(
-                success=False,
+                status=ContainerStatus.FAILED,
                 output={"error": str(e)},
                 exit_code=-1,
                 logs=traceback.format_exc(),
@@ -1423,9 +1424,10 @@ class WorkflowEngine:
         """Update GitHub issue labels."""
         try:
             if add_labels:
-                await self.github_client.add_labels(issue_number, add_labels)
+                self.github_client.add_labels(issue_number, add_labels)
             if remove_labels:
-                await self.github_client.remove_labels(issue_number, remove_labels)
+                for label in remove_labels:
+                    self.github_client.remove_label(issue_number, label)
         except Exception as e:
             logger.warning(f"Failed to update labels for issue #{issue_number}: {e}")
 

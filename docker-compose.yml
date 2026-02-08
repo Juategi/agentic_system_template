@@ -67,6 +67,7 @@ services:
 
       # LLM configuration
       - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - LLM_MODEL=${LLM_MODEL:-${OLLAMA_MODEL:-llama3.2}}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.2}
@@ -94,6 +95,7 @@ services:
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_PATH=/logs
 
       # Redis (if used)
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -181,10 +183,14 @@ services:
 
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_PATH=/logs
     volumes:
       - ${LOCAL_MEMORY_PATH:-./memory}:/memory
       - ${LOCAL_REPO_PATH:-./repo}:/repo
       - ${LOCAL_OUTPUT_PATH:-./output}:/output
+      # Shared logs directory for permanent agent logs
+      - ${LOG_PATH:-./logs}:/logs
     deploy:
       resources:
         limits:

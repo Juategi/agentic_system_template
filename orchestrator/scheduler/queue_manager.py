@@ -735,7 +735,7 @@ class QueueManager:
 
         try:
             # Fetch issues with READY label
-            issues = await self.github_client.list_issues(
+            issues = self.github_client.list_issues(
                 labels=[self.ready_label],
                 state="open",
             )

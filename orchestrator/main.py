@@ -31,6 +31,9 @@ from typing import Dict, List, Any, Optional
 
 import yaml
 
+# Monitoring imports
+from monitoring import setup_logging as monitoring_setup_logging, AuditLogger, log_context
+
 # Local imports
 from orchestrator.github.client import GitHubClient
 from orchestrator.github.issue_manager import IssueManager, create_issue_manager
@@ -97,7 +100,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
         "LLM_API_KEY": ("llm", "api_key"),
         "ANTHROPIC_API_KEY": ("llm", "api_key"),
         "OPENAI_API_KEY": ("llm", "openai_api_key"),
-        "OLLAMA_BASE_URL": ("llm", "ollama_base_url"),
+        "OLLAMA_BASE_URL": ("llm", "api_base"),
         # State Manager
         "STATE_BACKEND": ("state", "backend"),
         "REDIS_URL": ("state", "redis_url"),
@@ -176,22 +179,17 @@ def load_config(config_path: str) -> Dict[str, Any]:
 
 
 def setup_logging(debug: bool = False) -> None:
-    """Configure structured logging."""
-    level = logging.DEBUG if debug else logging.INFO
+    """Configure structured logging using the monitoring module."""
+    level = "DEBUG" if debug else os.environ.get("LOG_LEVEL", "INFO")
+    fmt = os.environ.get("LOG_FORMAT", "json")
+    log_dir = os.environ.get("LOG_PATH", "./logs")
 
-    logging.basicConfig(
+    monitoring_setup_logging(
         level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-        ],
+        fmt=fmt,
+        log_dir=log_dir,
+        mask_sensitive=True,
     )
-
-    # Reduce noise from third-party libraries
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("docker").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 # =============================================================================
@@ -221,6 +219,10 @@ class Orchestrator:
         self._running = False
         self._shutdown_event = asyncio.Event()
         self._tasks: List[asyncio.Task] = []
+
+        # Audit logger
+        log_dir = os.environ.get("LOG_PATH", "./logs")
+        self.audit = AuditLogger(output_path=f"{log_dir}/audit.jsonl")
 
         # Components (initialized in setup())
         self.github_client: Optional[GitHubClient] = None
@@ -267,8 +269,8 @@ class Orchestrator:
         logger.info("State manager initialized")
 
         # 4. LangChain Engine
-        llm_config = self.config.get("llm", {})
-        self.langchain_engine = create_langchain_engine(llm_config)
+        llm_config = {"llm": self.config.get("llm", {})}
+        self.langchain_engine = await create_langchain_engine(llm_config)
         logger.info("LangChain engine initialized")
 
         # 5. Agent Launcher
@@ -374,12 +376,23 @@ class Orchestrator:
 
             # Determine result
             issue_state = final_state.get("issue_state", "")
+            prev_state = final_state.get("previous_state", "NEW")
             if issue_state == IssueState.DONE.value:
                 result = "completed"
             elif issue_state == IssueState.BLOCKED.value:
                 result = "blocked"
             else:
                 result = "in_progress"
+
+            # Audit: state transition
+            self.audit.log_state_transition(
+                issue_number=issue_number,
+                from_state=prev_state,
+                to_state=issue_state,
+                trigger="workflow_engine",
+                agent_type=final_state.get("current_agent"),
+                details={"iterations": final_state.get("iteration_count", 0)},
+            )
 
             # Update queue status
             if result == "completed":
@@ -397,6 +410,12 @@ class Orchestrator:
 
         except WorkflowError as e:
             logger.error(f"Workflow error for issue #{issue_number}: {e}")
+            self.audit.log_error(
+                component="orchestrator",
+                error_type="WorkflowError",
+                message=str(e),
+                issue_number=issue_number,
+            )
             await self.queue_manager.mark_failed(issue_number)
             return {
                 "result": "error",

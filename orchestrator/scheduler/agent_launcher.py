@@ -145,7 +145,7 @@ class AgentLauncher:
 
     DEFAULT_CONFIG = {
         "docker_image": "ai-agent:latest",
-        "docker_network": "agent-network",
+        "docker_network": "ai-agent-network",
         "cpu_limit": 2.0,
         "memory_limit": "4g",
         "default_timeout": 1800,  # 30 minutes
@@ -536,9 +536,11 @@ class AgentLauncher:
         - /output: Agent output (write)
         - /input: Orchestrator input (read)
         """
-        # Create issue-specific output directory
+        # Create issue-specific output directory and subdirs needed by entrypoint
         output_dir = Path(self._host_output_path) / str(issue_number)
         output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (output_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
         input_dir = Path(self._host_output_path) / str(issue_number) / "input"
         input_dir.mkdir(parents=True, exist_ok=True)

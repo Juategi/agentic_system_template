@@ -10,7 +10,9 @@
       "Bash(\"c:\\\\Users\\\\juanT\\\\Documents\\\\programacion\\\\agentic_system_template\\\\monitoring\\\\prometheus.yml\" << 'EOF'\nglobal:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n\nscrape_configs:\n  - job_name: 'orchestrator'\n    static_configs:\n      - targets: ['orchestrator:8081']\n    metrics_path: /metrics\nEOF)",
       "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/prometheus.yml << 'EOF'\nglobal:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n\nscrape_configs:\n  - job_name: 'orchestrator'\n    static_configs:\n      - targets: ['orchestrator:8081']\n    metrics_path: /metrics\nEOF)",
       "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/grafana/provisioning/datasources/datasource.yml << 'EOF'\napiVersion: 1\n\ndatasources:\n  - name: Prometheus\n    type: prometheus\n    access: proxy\n    url: http://prometheus:9090\n    isDefault: true\n    editable: true\nEOF)",
-      "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/grafana/provisioning/dashboards/dashboard.yml << 'EOF'\napiVersion: 1\n\nproviders:\n  - name: 'default'\n    orgId: 1\n    folder: ''\n    type: file\n    disableDeletion: false\n    editable: true\n    options:\n      path: /var/lib/grafana/dashboards\n      foldersFromFilesStructure: false\nEOF)"
+      "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/grafana/provisioning/dashboards/dashboard.yml << 'EOF'\napiVersion: 1\n\nproviders:\n  - name: 'default'\n    orgId: 1\n    folder: ''\n    type: file\n    disableDeletion: false\n    editable: true\n    options:\n      path: /var/lib/grafana/dashboards\n      foldersFromFilesStructure: false\nEOF)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker-compose up:*)"
     ]
   }
 }

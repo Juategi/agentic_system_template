@@ -50,6 +50,7 @@ RUN pip install -r requirements.txt -r requirements-orchestrator.txt
 # Copy application code
 COPY orchestrator/ ./orchestrator/
 COPY config/ ./config/
+COPY monitoring/ ./monitoring/
 
 # Create directories for mounted volumes
 RUN mkdir -p /memory /repo /data /logs
