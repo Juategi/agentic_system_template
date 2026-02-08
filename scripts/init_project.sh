@@ -100,22 +100,48 @@ echo ""
 echo "Select LLM Provider:"
 echo "  1) Anthropic (Claude)"
 echo "  2) OpenAI"
+echo "  3) Ollama (local, free)"
 read -p "Choice [1]: " LLM_CHOICE
-case "$LLM_CHOICE" in
-    2) LLM_PROVIDER="openai" ;;
-    *) LLM_PROVIDER="anthropic" ;;
-esac
 
-# LLM API Key
-if [ "$LLM_PROVIDER" = "anthropic" ]; then
-    read -p "Anthropic API Key (leave empty to set later): " API_KEY
-    ANTHROPIC_API_KEY="$API_KEY"
-    OPENAI_API_KEY=""
-else
-    read -p "OpenAI API Key (leave empty to set later): " API_KEY
-    OPENAI_API_KEY="$API_KEY"
-    ANTHROPIC_API_KEY=""
-fi
+ANTHROPIC_API_KEY=""
+OPENAI_API_KEY=""
+OLLAMA_MODEL=""
+OLLAMA_BASE_URL=""
+
+case "$LLM_CHOICE" in
+    2)
+        LLM_PROVIDER="openai"
+        read -p "OpenAI API Key (leave empty to set later): " API_KEY
+        OPENAI_API_KEY="$API_KEY"
+        ;;
+    3)
+        LLM_PROVIDER="ollama"
+        read -p "Ollama server URL [http://localhost:11434]: " OLLAMA_BASE_URL
+        OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-"http://localhost:11434"}
+        echo ""
+        echo "Select Ollama model:"
+        echo "  1) llama3.2 (text only)"
+        echo "  2) llava (text + image analysis)"
+        echo "  3) codellama (optimized for code)"
+        echo "  4) mistral (general purpose)"
+        echo "  5) Custom"
+        read -p "Choice [1]: " OLLAMA_MODEL_CHOICE
+        case "$OLLAMA_MODEL_CHOICE" in
+            2) OLLAMA_MODEL="llava" ;;
+            3) OLLAMA_MODEL="codellama" ;;
+            4) OLLAMA_MODEL="mistral" ;;
+            5) read -p "Custom model name: " OLLAMA_MODEL ;;
+            *) OLLAMA_MODEL="llama3.2" ;;
+        esac
+        info "Model selected: $OLLAMA_MODEL"
+        info "Make sure to run: ollama pull $OLLAMA_MODEL"
+        ;;
+    *)
+        LLM_PROVIDER="anthropic"
+        read -p "Anthropic API Key (leave empty to set later): " API_KEY
+        ANTHROPIC_API_KEY="$API_KEY"
+        ;;
+esac
 
 # -----------------------------------------------------------------------------
 # CREATE .ENV FILE
@@ -154,6 +180,12 @@ GITHUB_REPO=$GITHUB_REPO
 LLM_PROVIDER=$LLM_PROVIDER
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 OPENAI_API_KEY=$OPENAI_API_KEY
+OLLAMA_BASE_URL=$OLLAMA_BASE_URL
+OLLAMA_MODEL=$OLLAMA_MODEL
+
+# Webhooks
+GITHUB_WEBHOOK_SECRET=
+NGROK_AUTHTOKEN=
 
 # Orchestrator
 ORCHESTRATOR_POLL_INTERVAL=30
@@ -247,7 +279,7 @@ if [ -z "$GITHUB_REPO" ]; then
     ERRORS=$((ERRORS + 1))
 fi
 
-if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
+if [ "$LLM_PROVIDER" != "ollama" ] && [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
     warning "No LLM API key configured in .env"
     ERRORS=$((ERRORS + 1))
 fi
