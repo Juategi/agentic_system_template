@@ -27,12 +27,12 @@ Guia paso a paso para poner en funcionamiento el sistema de agentes IA en tu pro
 
 ### Software necesario (todas las opciones)
 
-| Software         | Version minima | Uso                          |
-|------------------|----------------|------------------------------|
-| Docker           | 20.10+         | Contenedores de agentes      |
-| Docker Compose   | 2.0+           | Orquestacion local           |
-| Git              | 2.30+          | Control de versiones         |
-| Python           | 3.11+          | Solo si ejecutas sin Docker  |
+| Software       | Version minima | Uso                         |
+| -------------- | -------------- | --------------------------- |
+| Docker         | 20.10+         | Contenedores de agentes     |
+| Docker Compose | 2.0+           | Orquestacion local          |
+| Git            | 2.30+          | Control de versiones        |
+| Python         | 3.11+          | Solo si ejecutas sin Docker |
 
 ### Cuentas necesarias
 
@@ -60,6 +60,7 @@ cd mi-proyecto-agentes
 ```
 
 Este script te pedira:
+
 - Nombre del proyecto
 - Repositorio de GitHub (`owner/repo`)
 - Token de GitHub
@@ -111,6 +112,7 @@ ANTHROPIC_API_KEY=sk-ant-tu_key_aqui
 3. Copia el token y ponlo en `GITHUB_TOKEN` en `.env`
 
 > **Alternativa: GitHub App** — Para entornos de produccion, puedes usar una GitHub App en lugar de un PAT. Configura estas variables en `.env`:
+>
 > ```env
 > GITHUB_APP_ID=12345
 > GITHUB_APP_PRIVATE_KEY_PATH=/ruta/a/private-key.pem
@@ -129,24 +131,24 @@ Esto creara las siguientes labels en tu repositorio:
 
 **Labels de estado del flujo:**
 
-| Label           | Color    | Significado                        |
-|-----------------|----------|------------------------------------|
-| `READY`         | Verde    | Tarea lista para asignar a agente  |
-| `IN_PROGRESS`   | Amarillo | Agente trabajando                  |
-| `QA`            | Azul     | Validando calidad                  |
-| `QA_FAILED`     | Rosa     | QA fallo, vuelve a desarrollo      |
-| `REVIEW`        | Morado   | En revision de codigo              |
-| `BLOCKED`       | Rojo     | Requiere intervencion humana       |
-| `DONE`          | Verde    | Completado exitosamente            |
+| Label         | Color    | Significado                       |
+| ------------- | -------- | --------------------------------- |
+| `READY`       | Verde    | Tarea lista para asignar a agente |
+| `IN_PROGRESS` | Amarillo | Agente trabajando                 |
+| `QA`          | Azul     | Validando calidad                 |
+| `QA_FAILED`   | Rosa     | QA fallo, vuelve a desarrollo     |
+| `REVIEW`      | Morado   | En revision de codigo             |
+| `BLOCKED`     | Rojo     | Requiere intervencion humana      |
+| `DONE`        | Verde    | Completado exitosamente           |
 
 **Labels de tipo:**
 
-| Label      | Significado                            |
-|------------|----------------------------------------|
-| `feature`  | Feature compleja (sera descompuesta)   |
-| `task`     | Tarea individual de desarrollo         |
-| `bug`      | Bug a corregir                         |
-| `subtask`  | Subtarea de una feature                |
+| Label     | Significado                          |
+| --------- | ------------------------------------ |
+| `feature` | Feature compleja (sera descompuesta) |
+| `task`    | Tarea individual de desarrollo       |
+| `bug`     | Bug a corregir                       |
+| `subtask` | Subtarea de una feature              |
 
 **Labels de prioridad:** `priority:critical`, `priority:high`, `priority:medium`, `priority:low`
 
@@ -283,6 +285,8 @@ make build
 # o equivalente:
 docker-compose build
 
+docker-compose --profile agent build
+
 # 2. Arrancar el orquestador + Redis
 make start
 # o equivalente:
@@ -300,7 +304,7 @@ docker-compose logs -f orchestrator
 #### Que se levanta
 
 | Servicio       | Descripcion                              | Puerto |
-|----------------|------------------------------------------|--------|
+| -------------- | ---------------------------------------- | ------ |
 | `orchestrator` | Proceso principal, corre 24/7            | 8080   |
 | `redis`        | Backend de estado y colas (auto)         | 6379   |
 | `agent-runner` | Template de agentes (no se arranca solo) | -      |
@@ -361,6 +365,7 @@ make start
 ```
 
 > **Modelos recomendados para Ollama:**
+>
 > - `llama3.2` — Bueno para tareas generales (8B params)
 > - `codellama` — Optimizado para codigo
 > - `deepseek-coder` — Alternativa para codigo
@@ -435,17 +440,17 @@ spec:
             - containerPort: 8080
           env:
             - name: PROJECT_ID
-              value: "mi-proyecto"
+              value: 'mi-proyecto'
             - name: GITHUB_REPO
-              value: "tu-usuario/tu-repo"
+              value: 'tu-usuario/tu-repo'
             - name: LLM_PROVIDER
-              value: "anthropic"
+              value: 'anthropic'
             - name: ORCHESTRATOR_STATE_BACKEND
-              value: "redis"
+              value: 'redis'
             - name: REDIS_URL
-              value: "redis://redis-svc:6379/0"
+              value: 'redis://redis-svc:6379/0'
             - name: DOCKER_AGENT_IMAGE
-              value: "tu-registry.com/ai-agents/ai-agent:latest"
+              value: 'tu-registry.com/ai-agents/ai-agent:latest'
           envFrom:
             - secretRef:
                 name: ai-agent-secrets
@@ -456,11 +461,11 @@ spec:
               mountPath: /repo
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: '512Mi'
+              cpu: '250m'
             limits:
-              memory: "2Gi"
-              cpu: "1"
+              memory: '2Gi'
+              cpu: '1'
       volumes:
         - name: memory
           persistentVolumeClaim:
@@ -501,7 +506,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          command: ["redis-server", "--appendonly", "yes"]
+          command: ['redis-server', '--appendonly', 'yes']
           ports:
             - containerPort: 6379
           volumeMounts:
@@ -661,10 +666,12 @@ Crea una issue con el label `feature` + `READY`:
 Titulo: [Feature] Sistema de autenticacion de usuarios
 
 ## Description
+
 Implementar un sistema completo de autenticacion con registro,
 login y recuperacion de contrasena.
 
 ## Acceptance Criteria
+
 - [ ] Los usuarios pueden registrarse con email y contrasena
 - [ ] Los usuarios pueden hacer login
 - [ ] Las contrasenas se almacenan hasheadas
@@ -672,6 +679,7 @@ login y recuperacion de contrasena.
 - [ ] Tests unitarios cubren los casos principales
 
 ## Technical Considerations
+
 - Usar bcrypt para hashing de contrasenas
 - JWT para sesiones
 - Compatible con la arquitectura existente
@@ -687,9 +695,11 @@ Crea una issue con el label `task` + `READY`:
 Titulo: [Task] Agregar endpoint GET /health
 
 ## Description
+
 Crear un endpoint HTTP GET /health que devuelva el estado del servicio.
 
 ## Acceptance Criteria
+
 - [ ] GET /health devuelve 200 con {"status": "ok"}
 - [ ] Incluye version del servicio en la respuesta
 - [ ] Test unitario para el endpoint
@@ -742,21 +752,21 @@ Los logs de auditoria se escriben en `logs/` en formato JSONL. Cada accion de lo
 
 ## 9. Comandos Utiles
 
-| Comando                   | Descripcion                                |
-|---------------------------|--------------------------------------------|
-| `make build`              | Construir imagenes Docker                  |
-| `make start`              | Arrancar orquestador                       |
-| `make stop`               | Parar todo                                 |
-| `make restart`            | Reiniciar servicios                        |
-| `make logs`               | Ver logs del orquestador                   |
-| `make status`             | Estado de los servicios                    |
-| `make health`             | Health check del sistema                   |
-| `make start-monitoring`   | Arrancar con Prometheus + Grafana          |
-| `make start-dev`          | Arrancar con tunel ngrok                   |
-| `make clean`              | Limpiar contenedores y cache               |
-| `make run-planner ISSUE_NUMBER=5`   | Ejecutar planner manualmente    |
-| `make run-developer ISSUE_NUMBER=5` | Ejecutar developer manualmente  |
-| `make run-qa ISSUE_NUMBER=5`        | Ejecutar QA manualmente         |
+| Comando                             | Descripcion                       |
+| ----------------------------------- | --------------------------------- |
+| `make build`                        | Construir imagenes Docker         |
+| `make start`                        | Arrancar orquestador              |
+| `make stop`                         | Parar todo                        |
+| `make restart`                      | Reiniciar servicios               |
+| `make logs`                         | Ver logs del orquestador          |
+| `make status`                       | Estado de los servicios           |
+| `make health`                       | Health check del sistema          |
+| `make start-monitoring`             | Arrancar con Prometheus + Grafana |
+| `make start-dev`                    | Arrancar con tunel ngrok          |
+| `make clean`                        | Limpiar contenedores y cache      |
+| `make run-planner ISSUE_NUMBER=5`   | Ejecutar planner manualmente      |
+| `make run-developer ISSUE_NUMBER=5` | Ejecutar developer manualmente    |
+| `make run-qa ISSUE_NUMBER=5`        | Ejecutar QA manualmente           |
 
 ---
 
@@ -831,44 +841,44 @@ Ajusta estos valores en `.env` segun tu hardware.
 
 ### Obligatorias
 
-| Variable            | Ejemplo                   | Descripcion                    |
-|---------------------|---------------------------|--------------------------------|
-| `PROJECT_ID`        | `mi-proyecto`             | Identificador del proyecto     |
-| `GITHUB_TOKEN`      | `ghp_xxxx`                | Token de acceso a GitHub       |
-| `GITHUB_REPO`       | `usuario/repo`            | Repositorio objetivo           |
-| `LLM_PROVIDER`      | `anthropic`               | Proveedor LLM                  |
-| `ANTHROPIC_API_KEY`  | `sk-ant-xxxx`            | Key de Anthropic (si aplica)   |
-| `OPENAI_API_KEY`     | `sk-xxxx`                | Key de OpenAI (si aplica)      |
+| Variable            | Ejemplo        | Descripcion                  |
+| ------------------- | -------------- | ---------------------------- |
+| `PROJECT_ID`        | `mi-proyecto`  | Identificador del proyecto   |
+| `GITHUB_TOKEN`      | `ghp_xxxx`     | Token de acceso a GitHub     |
+| `GITHUB_REPO`       | `usuario/repo` | Repositorio objetivo         |
+| `LLM_PROVIDER`      | `anthropic`    | Proveedor LLM                |
+| `ANTHROPIC_API_KEY` | `sk-ant-xxxx`  | Key de Anthropic (si aplica) |
+| `OPENAI_API_KEY`    | `sk-xxxx`      | Key de OpenAI (si aplica)    |
 
 ### Opcionales (con valores por defecto)
 
-| Variable                           | Default       | Descripcion                       |
-|------------------------------------|---------------|-----------------------------------|
-| `ENVIRONMENT`                      | `development` | Entorno de ejecucion              |
-| `ORCHESTRATOR_POLL_INTERVAL`       | `30`          | Segundos entre polls a GitHub     |
-| `ORCHESTRATOR_MAX_CONCURRENT_AGENTS` | `3`         | Agentes en paralelo               |
-| `ORCHESTRATOR_STATE_BACKEND`       | `file`        | Backend de estado (file/redis)    |
-| `AGENT_MAX_ITERATIONS`             | `5`           | Max reintentos antes de BLOCKED   |
-| `AGENT_TIMEOUT`                    | `1800`        | Timeout de agente en segundos     |
-| `LLM_TEMPERATURE`                  | `0.2`         | Temperatura del LLM               |
-| `LLM_MAX_TOKENS`                   | `8192`        | Max tokens por respuesta          |
-| `LOG_LEVEL`                        | `INFO`        | Nivel de log                      |
-| `ENABLE_WEBHOOKS`                  | `false`       | Activar modo webhook              |
-| `ENABLE_METRICS`                   | `true`        | Activar metricas Prometheus       |
-| `OLLAMA_BASE_URL`                  | `http://localhost:11434` | URL de Ollama           |
-| `OLLAMA_MODEL`                     | `llama3.2`    | Modelo de Ollama                  |
-| `DRY_RUN`                          | `false`       | Modo simulacion (sin cambios)     |
+| Variable                             | Default                  | Descripcion                     |
+| ------------------------------------ | ------------------------ | ------------------------------- |
+| `ENVIRONMENT`                        | `development`            | Entorno de ejecucion            |
+| `ORCHESTRATOR_POLL_INTERVAL`         | `30`                     | Segundos entre polls a GitHub   |
+| `ORCHESTRATOR_MAX_CONCURRENT_AGENTS` | `3`                      | Agentes en paralelo             |
+| `ORCHESTRATOR_STATE_BACKEND`         | `file`                   | Backend de estado (file/redis)  |
+| `AGENT_MAX_ITERATIONS`               | `5`                      | Max reintentos antes de BLOCKED |
+| `AGENT_TIMEOUT`                      | `1800`                   | Timeout de agente en segundos   |
+| `LLM_TEMPERATURE`                    | `0.2`                    | Temperatura del LLM             |
+| `LLM_MAX_TOKENS`                     | `8192`                   | Max tokens por respuesta        |
+| `LOG_LEVEL`                          | `INFO`                   | Nivel de log                    |
+| `ENABLE_WEBHOOKS`                    | `false`                  | Activar modo webhook            |
+| `ENABLE_METRICS`                     | `true`                   | Activar metricas Prometheus     |
+| `OLLAMA_BASE_URL`                    | `http://localhost:11434` | URL de Ollama                   |
+| `OLLAMA_MODEL`                       | `llama3.2`               | Modelo de Ollama                |
+| `DRY_RUN`                            | `false`                  | Modo simulacion (sin cambios)   |
 
 ---
 
 ## Comparativa de Opciones de Ejecucion
 
-| Caracteristica         | Local Docker Compose | Local + Ollama | Kubernetes           | VPS                  |
-|------------------------|----------------------|----------------|----------------------|----------------------|
-| Dificultad de setup    | Baja                 | Baja           | Alta                 | Media                |
-| Coste infraestructura  | Ninguno              | Ninguno        | Variable (cloud)     | Desde ~5 USD/mes     |
-| Coste LLM              | Por uso API          | Gratuito       | Por uso API          | Por uso API / Gratis |
-| Disponibilidad 24/7    | Solo si PC encendido | Solo si PC on  | Si                   | Si                   |
-| Escalabilidad          | Limitada             | Limitada       | Alta                 | Media                |
-| Calidad de resultados  | Alta (Claude/GPT)    | Media (local)  | Alta                 | Alta / Media         |
-| Uso recomendado        | Desarrollo/pruebas   | Experimentar   | Produccion a escala  | Produccion basica    |
+| Caracteristica        | Local Docker Compose | Local + Ollama | Kubernetes          | VPS                  |
+| --------------------- | -------------------- | -------------- | ------------------- | -------------------- |
+| Dificultad de setup   | Baja                 | Baja           | Alta                | Media                |
+| Coste infraestructura | Ninguno              | Ninguno        | Variable (cloud)    | Desde ~5 USD/mes     |
+| Coste LLM             | Por uso API          | Gratuito       | Por uso API         | Por uso API / Gratis |
+| Disponibilidad 24/7   | Solo si PC encendido | Solo si PC on  | Si                  | Si                   |
+| Escalabilidad         | Limitada             | Limitada       | Alta                | Media                |
+| Calidad de resultados | Alta (Claude/GPT)    | Media (local)  | Alta                | Alta / Media         |
+| Uso recomendado       | Desarrollo/pruebas   | Experimentar   | Produccion a escala | Produccion basica    |

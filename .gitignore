@@ -185,3 +185,5 @@ memory/*.md
 memory/features/*.md
 !memory/*.md.bak
 !memory/features/*.md.bak
+
+repo/
