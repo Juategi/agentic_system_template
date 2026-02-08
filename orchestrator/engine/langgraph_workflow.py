@@ -1421,9 +1421,11 @@ class WorkflowEngine:
         add_labels: Optional[List[str]] = None,
         remove_labels: Optional[List[str]] = None,
     ) -> None:
-        """Update GitHub issue labels."""
+        """Update GitHub issue labels, creating any that don't exist yet."""
         try:
             if add_labels:
+                for label in add_labels:
+                    self.github_client.get_or_create_label(label)
                 self.github_client.add_labels(issue_number, add_labels)
             if remove_labels:
                 for label in remove_labels:

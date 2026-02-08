@@ -57,10 +57,14 @@ echo "Started at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "========================================"
 
 # Ensure output directory exists and is writable
-mkdir -p "$OUTPUT_PATH/logs" "$OUTPUT_PATH/artifacts"
+mkdir -p "$OUTPUT_PATH/logs" "$OUTPUT_PATH/artifacts" 2>/dev/null || true
 
-# Log file for this execution
-LOG_FILE="$OUTPUT_PATH/logs/execution.log"
+# Log file for this execution (fallback to /tmp if output dir not writable)
+if [ -d "$OUTPUT_PATH/logs" ] && [ -w "$OUTPUT_PATH/logs" ]; then
+    LOG_FILE="$OUTPUT_PATH/logs/execution.log"
+else
+    LOG_FILE="/tmp/execution.log"
+fi
 
 # Function to log messages
 log() {

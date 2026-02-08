@@ -108,8 +108,12 @@ def load_config(config_path: str) -> Dict[str, Any]:
         "STATE_DIR": ("state", "state_dir"),
         # Docker / Agent
         "DOCKER_IMAGE": ("agent", "docker_image"),
+        "DOCKER_AGENT_IMAGE": ("agent", "docker_image"),
         "MAX_CONCURRENT_AGENTS": ("agent", "max_concurrent"),
         "AGENT_TIMEOUT": ("agent", "timeout"),
+        "HOST_MEMORY_PATH": ("agent", "host_memory_path"),
+        "HOST_REPO_PATH": ("agent", "host_repo_path"),
+        "HOST_OUTPUT_PATH": ("agent", "host_output_path"),
         # Orchestrator
         "POLL_INTERVAL": ("orchestrator", "poll_interval"),
         "MAX_ITERATIONS": ("orchestrator", "max_iterations"),
@@ -137,8 +141,8 @@ def load_config(config_path: str) -> Dict[str, Any]:
             "repo": "",
         },
         "llm": {
-            "provider": "anthropic",
-            "model": "claude-3-5-sonnet-20241022",
+            "provider": "ollama",
+            "model": "llava",
             "temperature": 0.0,
             "max_tokens": 4096,
         },

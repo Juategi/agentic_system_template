@@ -175,10 +175,13 @@ class AgentLauncher:
             max_concurrent=self.config.get("max_concurrent", 3)
         )
 
-        # Paths for volume mounts (host paths)
+        # Paths for volume mounts (host paths for Docker API)
         self._host_memory_path = self.config.get("host_memory_path", "./memory")
         self._host_repo_path = self.config.get("host_repo_path", "./repo")
         self._host_output_path = self.config.get("host_output_path", "./output")
+
+        # Local paths inside orchestrator container (for creating dirs/files)
+        self._local_output_path = self.config.get("local_output_path", "/output")
 
         logger.info("AgentLauncher initialized")
 
@@ -536,14 +539,19 @@ class AgentLauncher:
         - /output: Agent output (write)
         - /input: Orchestrator input (read)
         """
-        # Create issue-specific output directory and subdirs needed by entrypoint
-        output_dir = Path(self._host_output_path) / str(issue_number)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "logs").mkdir(parents=True, exist_ok=True)
-        (output_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+        # Create issue-specific output directory inside orchestrator container
+        # (the /output mount is shared with the host via docker-compose)
+        local_output = Path(self._local_output_path) / str(issue_number)
+        local_output.mkdir(parents=True, exist_ok=True)
+        (local_output / "logs").mkdir(parents=True, exist_ok=True)
+        (local_output / "artifacts").mkdir(parents=True, exist_ok=True)
 
-        input_dir = Path(self._host_output_path) / str(issue_number) / "input"
-        input_dir.mkdir(parents=True, exist_ok=True)
+        local_input = local_output / "input"
+        local_input.mkdir(parents=True, exist_ok=True)
+
+        # Use HOST paths for Docker volume mounts (agent containers are siblings)
+        host_output = Path(self._host_output_path) / str(issue_number)
+        host_input = host_output / "input"
 
         return {
             str(Path(self._host_memory_path).absolute()): {
@@ -554,11 +562,11 @@ class AgentLauncher:
                 "bind": self.config["repo_path"],
                 "mode": "rw",
             },
-            str(output_dir.absolute()): {
+            str(host_output.absolute()): {
                 "bind": self.config["output_path"],
                 "mode": "rw",
             },
-            str(input_dir.absolute()): {
+            str(host_input.absolute()): {
                 "bind": self.config["input_path"],
                 "mode": "ro",
             },
@@ -570,7 +578,7 @@ class AgentLauncher:
         context: Dict[str, Any],
     ) -> Path:
         """Write input context for agent."""
-        input_dir = Path(self._host_output_path) / str(issue_number) / "input"
+        input_dir = Path(self._local_output_path) / str(issue_number) / "input"
         input_dir.mkdir(parents=True, exist_ok=True)
 
         input_file = input_dir / "input.json"
@@ -591,7 +599,7 @@ class AgentLauncher:
             return None
 
         output_file = (
-            Path(self._host_output_path) /
+            Path(self._local_output_path) /
             str(info.issue_number) /
             "result.json"
         )

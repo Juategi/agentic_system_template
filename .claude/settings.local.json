@@ -12,7 +12,9 @@
       "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/grafana/provisioning/datasources/datasource.yml << 'EOF'\napiVersion: 1\n\ndatasources:\n  - name: Prometheus\n    type: prometheus\n    access: proxy\n    url: http://prometheus:9090\n    isDefault: true\n    editable: true\nEOF)",
       "Bash(/c/Users/juanT/Documents/programacion/agentic_system_template/monitoring/grafana/provisioning/dashboards/dashboard.yml << 'EOF'\napiVersion: 1\n\nproviders:\n  - name: 'default'\n    orgId: 1\n    folder: ''\n    type: file\n    disableDeletion: false\n    editable: true\n    options:\n      path: /var/lib/grafana/dashboards\n      foldersFromFilesStructure: false\nEOF)",
       "Bash(docker-compose logs:*)",
-      "Bash(docker-compose up:*)"
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(gh issue edit:*)"
     ]
   }
 }

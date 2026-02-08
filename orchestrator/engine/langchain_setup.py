@@ -44,8 +44,8 @@ class LLMProvider(Enum):
 @dataclass
 class LLMConfig:
     """Configuration for LLM client."""
-    provider: str = "anthropic"
-    model: str = "claude-3-5-sonnet-20241022"
+    provider: str = "ollama"
+    model: str = "llava"
     temperature: float = 0.0
     max_tokens: int = 4096
     timeout: int = 120
@@ -60,8 +60,8 @@ class LLMConfig:
         """Create config from dictionary."""
         llm_config = config.get("llm", {})
         return cls(
-            provider=llm_config.get("provider", "anthropic"),
-            model=llm_config.get("model", "claude-3-5-sonnet-20241022"),
+            provider=llm_config.get("provider", "ollama"),
+            model=llm_config.get("model", "llava"),
             temperature=llm_config.get("temperature", 0.0),
             max_tokens=llm_config.get("max_tokens", 4096),
             timeout=llm_config.get("timeout", 120),

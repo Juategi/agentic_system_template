@@ -67,6 +67,7 @@ RUN pip install -r requirements.txt -r requirements-agent.txt
 
 # Copy agent code
 COPY agents/ ./agents/
+COPY monitoring/ ./monitoring/
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh

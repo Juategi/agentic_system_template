@@ -104,6 +104,11 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - DOCKER_AGENT_IMAGE=${DOCKER_AGENT_IMAGE:-ai-agent:latest}
       - DOCKER_NETWORK=${DOCKER_NETWORK:-ai-agent-network}
+
+      # Host paths for agent volume mounts (orchestrator creates sibling containers)
+      - HOST_MEMORY_PATH=${LOCAL_MEMORY_PATH:-./memory}
+      - HOST_REPO_PATH=${LOCAL_REPO_PATH:-./repo}
+      - HOST_OUTPUT_PATH=${LOCAL_OUTPUT_PATH:-./output}
     volumes:
       # Docker socket for agent container management
       - /var/run/docker.sock:/var/run/docker.sock
@@ -116,6 +121,9 @@ services:
 
       # Code repository (shared with agents)
       - ${LOCAL_REPO_PATH:-./repo}:/repo
+
+      # Agent output (for creating dirs before agent launch)
+      - ${LOCAL_OUTPUT_PATH:-./output}:/output
 
       # Logs
       - ${LOG_PATH:-./logs}:/logs
